@@ -31,9 +31,11 @@ ann_fut <- grep('topoterra_2C_[0-9]{4}.tif',
   map(\(x) crop(rast(x),r6)) 
 
 ann_fut <- lapply(ann_fut, FUN = as.data.table)
-# TEMPORARILY REMOVE TMIN/TMAX DUE TO ERROR
-ann_fut <- lapply(ann_fut, function(i) select(i, -tmin, -tmax))
 
+fut_coords <- paste0(climate_dir,'/','topoterra_2C_1985.tif') %>% 
+  rast() %>% 
+  crop(., r6) %>% 
+  crds()
 # This is more consistent, but doesn't work
 # ann_fut <- ann_fut %>% 
 #   map(., as.data.table())
@@ -41,15 +43,13 @@ ann_fut <- lapply(ann_fut, function(i) select(i, -tmin, -tmax))
 # 2C normals
 # Eventually, remove this because the downscaled normals are slightly different than 
 # the means/normals calculated from the downscaled annuals 
-# norm_fut <- grep('topoterra_2C_[0-9]{4}-[0-9]{4}.tif', 
-#                  list.files(climate_dir), 
+# norm_fut <- grep('topoterra_2C_[0-9]{4}-[0-9]{4}.tif',
+#                  list.files(climate_dir),
 #                  value = T) %>%
-#   paste0(climate_dir,'/',.) %>% 
-#   rast(.) %>% 
-#   crop(., r6) %>% 
-#   as.data.table(.) %>% 
-#   # TEMPORARILY REMOVE TMIN/TMAX DUE TO ERROR
-#   select(-tmin, -tmax)
+#   paste0(climate_dir,'/',.) %>%
+#   rast(.) %>%
+#   crop(., r6) %>%
+#   as.data.table(.) %>%
 
 # Historical normals (downscaled from TerraClimate normals)
 norm_hist <- grep('topoterra_hist_[0-9]{4}-[0-9]{4}.tif', 
@@ -57,10 +57,8 @@ norm_hist <- grep('topoterra_hist_[0-9]{4}-[0-9]{4}.tif',
                   value = T) %>%
   paste0(climate_dir,'/',.) %>% 
   rast(.) %>% 
-  as.data.table(.) %>% 
-  # TEMPORARILY REMOVE TMIN/TMAX DUE TO ERROR
-  select(-tmin, -tmax)
-
+  as.data.table(.) 
+ 
 # Save out the centroid coordinates separately
 ref_coords <- grep('topoterra_hist_[0-9]{4}-[0-9]{4}.tif', 
                    list.files(climate_dir), 
@@ -77,7 +75,7 @@ gc()
 #-------------------------------------------------------------------------------
 # How many analogs randomly sampled from global pool?
 n_analogs <- 1000000
-
+pt_i = 10000
 # The MD/sigma dissimilarity function
 md_fun <- function(pt_i){
   print(paste0('Running point ', pt_i, ' of ', nrow(ann_fut[[1]])))
@@ -93,7 +91,7 @@ md_fun <- function(pt_i){
   #   unlist()
   fut_mean <- map(ann_fut, ~ .x[pt_i]) %>%
     rbindlist() %>% 
-    summarise(across(c(aet, def), mean)) %>% 
+    summarise(across(c(aet, def, tmax, tmin), mean)) %>% 
     unlist()
   
   # Analog pool - from historical normals --------------------------------------
@@ -121,29 +119,75 @@ md_fun <- function(pt_i){
   #   sqrt()
   
   # Convert distances (D) to percentiles of chi distribution (mulit-dimensional normal)
-  P <- pchisq(D, df = 2)
+  P <- pchisq(D, df = 2) 
   # Convert percentiles into quantiles (standard deviations from mean)
   sigma <- qchisq(P, df = 1) 
-  sigma <- sqrt(sigma)
+  sigma <- sqrt(sigma) %>% 
+    round(., 3)
 
   # Bind values to coordinates of best analogs
   ref_coords_sample <- ref_coords[random_pts,]
 
-  out_dt <- data.table('x' = ref_coords_sample[,'x'],
-                       'y' = ref_coords_sample[,'y'],
-                       'D' = D,
+  out_dt <- data.table('fc_x' = fut_coords[pt_i,'x'],
+                       'fc_y' = fut_coords[pt_i,'y'],
+                       'an_x' = ref_coords_sample[,'x'],
+                       'an_y' = ref_coords_sample[,'y'],
+                       'md' = D,
                        'sigma' = sigma) %>% 
-    filter(sigma > 0, is.finite(sigma))
+    filter(is.finite(sigma), sigma < 2) %>% 
+    mutate('dist_m' = sqrt((fc_x-an_x)^2 + (fc_y-an_y)^2)) 
   
+  rm(cov_i, fut_mean, random_pts, ref_mat, D, P, sigma, ref_coords_sample)
+  gc()
   return(out_dt)
 }
 
-plan(callr, workers = 5)
+# Temp plotting during development
+# some_pts <- out_dt %>% 
+#   slice_sample(n = 10000)
+# 
+# ggplot(out_dt, aes(x = dist_km, y = sigma)) +
+#   geom_point(data = some_pts) +
+#   geom_smooth()
 
-sigma_df <- seq(nrow(ann_fut[[1]])) %>% 
-  future_map_dfr(md_fun)
+# Break the focal dataset into chunks 
+# ------------------------------------------------------------------------------
+# Set the number of chunks 
+num_chunks <- 350
+# Get the total number of rows in each dataframe
+total_rows <- nrow(ann_fut[[1]])
+# Calculate the number of rows in each chunk
+rows_per_chunk <- total_rows %/% num_chunks
+# Initialize an empty list to store chunks
+chunks <- list()
 
-saveRDS(sigma_df, '../data/sigma_df_11-9-23.RD')  
+# Iterate over the range of chunks
+for (i in 1:num_chunks) {
+  # Calculate the start and end indices for each chunk
+  start_index <- (i - 1) * rows_per_chunk + 1
+  end_index <- min(i * rows_per_chunk, total_rows)
+  # Slice each dataframe in the list to get the subset of rows for the current chunk
+  chunk <- lapply(ann_fut, function(df) df[start_index:end_index, , drop = FALSE])
+  # Append the chunk to the list of chunks
+  chunks[[i]] <- chunk
+}
+# ------------------------------------------------------------------------------
+
+
+# Parallelize and run!
+plan(multicore, workers = 40)
+chunk_idx <- seq(length(chunks))
+
+chunks %>% 
+  iwalk(\(chunk, chunk_idx){
+    
+    sigma_dt <- seq(nrow(chunk[[1]])) %>% 
+      future_map_dfr(md_fun, .id = 'focal_id')
+    
+    saveRDS(sigma_dt, paste0('../data/sigma_output/sigma_dt_',chunk_idx,'.rds'))  
+    
+  })
+
 
 
 
