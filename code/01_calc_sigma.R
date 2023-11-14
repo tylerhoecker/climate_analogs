@@ -119,7 +119,8 @@ md_fun <- function(pt_i){
   #   sqrt()
   
   # Convert distances (D) to percentiles of chi distribution (mulit-dimensional normal)
-  P <- pchisq(D, df = 2) 
+  # df = number of dimensions / climate variables
+  P <- pchisq(D, df = 4) 
   # Convert percentiles into quantiles (standard deviations from mean)
   sigma <- qchisq(P, df = 1) 
   sigma <- sqrt(sigma) %>% 
