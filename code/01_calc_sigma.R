@@ -144,12 +144,12 @@ md_fun <- function(pt_i){
 }
 
 # Temp plotting during development
-# some_pts <- out_dt %>% 
-#   slice_sample(n = 10000)
-# 
-# ggplot(out_dt, aes(x = dist_km, y = sigma)) +
-#   geom_point(data = some_pts) +
-#   geom_smooth()
+some_pts <- out_dt %>%
+  slice_sample(n = 10000)
+
+ggplot(out_dt, aes(x = dist_m, y = sigma)) +
+  geom_point(data = some_pts) +
+  geom_smooth()
 
 # Break the focal dataset into chunks 
 # ------------------------------------------------------------------------------
