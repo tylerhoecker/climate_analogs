@@ -1,15 +1,17 @@
 #-------------------------------------------------------------------------------
-#
+# Testing
+#historical <- rast('../data/climate/topoterra_hist_1961-1990.tif')
+#future <- rast('../data/climate/topoterra_2C_1985-2015.tif')
 #-------------------------------------------------------------------------------
 
 # Packages and functions -------------------------------------------------------
-library(sf)
-library(tidyverse)
 library(terra)
-source('as.data.table.r') # https://gist.github.com/etiennebr/9515738#file-as-data-table-r
-library(chi)
+library(sf)
+library(tidyr)
+library(dplyr)
 library(furrr)
-library(callr)
+library(purrr)
+source('as.data.table.r') # https://gist.github.com/etiennebr/9515738#file-as-data-table-r
 
 # OR-WA boundary for crop ------------------------------------------------------
 climate_dir <- file.path('..','data','climate')
@@ -32,24 +34,11 @@ ann_fut <- grep('topoterra_2C_[0-9]{4}.tif',
 
 ann_fut <- lapply(ann_fut, FUN = as.data.table)
 
+# Record the coordinates of the cells, not preserved by datatable
 fut_coords <- paste0(climate_dir,'/','topoterra_2C_1985.tif') %>% 
   rast() %>% 
   crop(., r6) %>% 
   crds()
-# This is more consistent, but doesn't work
-# ann_fut <- ann_fut %>% 
-#   map(., as.data.table())
-
-# 2C normals
-# Eventually, remove this because the downscaled normals are slightly different than 
-# the means/normals calculated from the downscaled annuals 
-# norm_fut <- grep('topoterra_2C_[0-9]{4}-[0-9]{4}.tif',
-#                  list.files(climate_dir),
-#                  value = T) %>%
-#   paste0(climate_dir,'/',.) %>%
-#   rast(.) %>%
-#   crop(., r6) %>%
-#   as.data.table(.) %>%
 
 # Historical normals (downscaled from TerraClimate normals)
 norm_hist <- grep('topoterra_hist_[0-9]{4}-[0-9]{4}.tif', 
@@ -75,12 +64,14 @@ gc()
 #-------------------------------------------------------------------------------
 # How many analogs randomly sampled from global pool?
 n_analogs <- 1000000
-pt_i = 10000
+#pt_i = 100000
 # The MD/sigma dissimilarity function
 md_fun <- function(pt_i){
-  print(paste0('Running point ', pt_i, ' of ', nrow(ann_fut[[1]])))
+  
+  print(paste0('Running point ', pt_i, ' of ', nrow(chunk[[1]])))
+  
   # Build covariance matrix for pt_i from 30 years of annual projected future data
-  cov_i <- map(ann_fut, ~ .x[pt_i]) %>%
+  cov_i <- map(chunk, ~ .x[pt_i]) %>%
     rbindlist() %>%
     cov()
  
@@ -89,7 +80,7 @@ md_fun <- function(pt_i){
   # probably a result of the downscaling process
   # fut_mu_vec <- norm_fut[pt_i] %>%
   #   unlist()
-  fut_mean <- map(ann_fut, ~ .x[pt_i]) %>%
+  fut_mean <- map(chunk, ~ .x[pt_i]) %>%
     rbindlist() %>% 
     summarise(across(c(aet, def, tmax, tmin), mean)) %>% 
     unlist()
@@ -113,16 +104,15 @@ md_fun <- function(pt_i){
   
   # Mahoney follows a procedure where D is immediately unsquared, then is fed into 
   # a chi distribution function. Mathematically, it is equivalent to feed the squared-D into 
-  # a chi-squared distribution function, and then unsquare the values. This is an order of 
+  # a chi-squared distribution function, and then unsquare the result. This is an order of 
   # magnitude faster, because the chi::qchi function is very slow.
-  # %>% 
-  #   sqrt()
+  # %>% sqrt()
   
   # Convert distances (D) to percentiles of chi distribution (mulit-dimensional normal)
   # df = number of dimensions / climate variables
-  P <- pchisq(D, df = 4) 
+  P <- pchisq(D, df = length(fut_mean)) 
   # Convert percentiles into quantiles (standard deviations from mean)
-  sigma <- qchisq(P, df = 1) 
+  sigma <- qchisq(P, df = 1) # df is now 1... 
   sigma <- sqrt(sigma) %>% 
     round(., 3)
 
@@ -144,17 +134,17 @@ md_fun <- function(pt_i){
 }
 
 # Temp plotting during development
-some_pts <- out_dt %>%
-  slice_sample(n = 10000)
-
-ggplot(out_dt, aes(x = dist_m, y = sigma)) +
-  geom_point(data = some_pts) +
-  geom_smooth()
+# some_pts <- out_dt %>%
+#   slice_sample(n = 10000)
+# 
+# ggplot(out_dt, aes(x = dist_m*0.001, y = sigma)) +
+#   geom_point(data = some_pts) +
+#   geom_smooth()
 
 # Break the focal dataset into chunks 
 # ------------------------------------------------------------------------------
 # Set the number of chunks 
-num_chunks <- 350
+num_chunks <- 300
 # Get the total number of rows in each dataframe
 total_rows <- nrow(ann_fut[[1]])
 # Calculate the number of rows in each chunk
@@ -172,21 +162,29 @@ for (i in 1:num_chunks) {
   # Append the chunk to the list of chunks
   chunks[[i]] <- chunk
 }
+
+rm(ann_fut)
+gc()
 # ------------------------------------------------------------------------------
 
 
 # Parallelize and run!
-plan(multicore, workers = 40)
-chunk_idx <- seq(length(chunks))
+options(future.globals.maxSize= 5000000000)
+plan(multicore, workers = 46)
 
 chunks %>% 
   iwalk(\(chunk, chunk_idx){
-    
+     
+    # Calculate sigmas to analogs for each focal point 
     sigma_dt <- seq(nrow(chunk[[1]])) %>% 
-      future_map_dfr(md_fun, .id = 'focal_id')
+      future_map_dfr(md_fun, .id = 'focal_id', .progress = TRUE)
     
+    # Save as RDS
     saveRDS(sigma_dt, paste0('../data/sigma_output/sigma_dt_',chunk_idx,'.rds'))  
     
+    # Explicitly remove and free memory each iteration
+    rm(sigma_dt)
+    gc()
   })
 
 
