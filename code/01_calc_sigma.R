@@ -119,6 +119,7 @@ md_fun <- function(pt_i){
   # Bind values to coordinates of best analogs
   ref_coords_sample <- ref_coords[random_pts,]
 
+  # COORDS NOT EXPECTED RESULT - NEED TO FIX!
   out_dt <- data.table('fc_x' = fut_coords[pt_i,'x'],
                        'fc_y' = fut_coords[pt_i,'y'],
                        'an_x' = ref_coords_sample[,'x'],
@@ -163,7 +164,20 @@ for (i in 1:num_chunks) {
   chunks[[i]] <- chunk
 }
 
-rm(ann_fut)
+coord_chunks <- list()
+# Iterate over the range of chunks
+for (i in 1:num_chunks) {
+  # Calculate the start and end indices for each chunk
+  start_index <- (i - 1) * rows_per_chunk + 1
+  end_index <- min(i * rows_per_chunk, total_rows)
+  # Slice each dataframe in the list to get the subset of rows for the current chunk
+  chunk <- fut_coords[start_index:end_index,]
+  # Append the chunk to the list of chunks
+  coord_chunks[[i]] <- chunk
+}
+
+saveRDS(coord_chunks, '../data/coord_chunks.Rds')
+rm(ann_fut, fut_coords)
 gc()
 # ------------------------------------------------------------------------------
 
