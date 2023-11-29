@@ -119,7 +119,7 @@ md_fun <- function(pt_i){
   # Bind values to coordinates of best analogs
   ref_coords_sample <- ref_coords[random_pts,]
 
-  # COORDS NOT EXPECTED RESULT - NEED TO FIX!
+  # COORDS NOT EXPECTED RESULT - NEED TO FIX! - taking the same first rows rather than from chunk
   out_dt <- data.table('fc_x' = fut_coords[pt_i,'x'],
                        'fc_y' = fut_coords[pt_i,'y'],
                        'an_x' = ref_coords_sample[,'x'],

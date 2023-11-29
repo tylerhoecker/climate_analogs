@@ -28,12 +28,12 @@ veg_vote_fn <- function(chunk, chunk_idx){
     readRDS() %>% 
     mutate(focal_id = as.numeric(focal_id)) %>% 
     # Select focal point from chunk
-    # filter(focal_id == focal_pt) %>%
+    # filter(focal_id == 1) %>%
     # Extract Landfire 2020 BPS code
     mutate(bps = extract(lf_bps, as.matrix(.[,c('an_x','an_y')]))[['lf_bps_32611']]) %>% 
     group_by(focal_id) %>% 
-    # Rescale sigma to 0-1, to use as weight for vote
-    mutate(sigma_z = scales::rescale(sigma),
+    # Rescale sigma to 1-0, to use as weight for vote (larger sigma is lower vote)
+    mutate(sigma_z = scales::rescale(sigma, to = c(1,0)),
            # Record the total number of analogs (< 2 sigma) in pool
            n_analogs = n()) %>% 
     # For each unique BPS code...
@@ -57,7 +57,7 @@ veg_vote_fn <- function(chunk, chunk_idx){
     # Could save the winning BPS class by raw vote instead/addition to weighted BPS
     # mutate(raw_bps = first(bps)) %>% 
     # Instead, sort by the weighted votes for BPS classes
-    arrange(desc(wt_prop), .by_group = T) %>% 
+    arrange(desc(raw_prop), .by_group = T) %>% 
     mutate(#w_bps = first(bps),
       n_bps = length(bps)) %>% 
     # And save the 
@@ -74,6 +74,7 @@ veg_vote_fn <- function(chunk, chunk_idx){
   veg_chunk_df <- cbind(chunks_coords[[chunk_idx]],
                         veg_chunk_df,
                         'current_bps' = current_bps)
+  return(veg_chunk_df)
 }
 
 
@@ -86,10 +87,19 @@ veg_votes_df <- sigma_output %>%
 out_rast <-  veg_votes_df %>% 
   select(x, y, bps1) %>% 
   rast(., type = 'xyz', crs = crs(lf_bps))
-  
 
 
 
+
+# Testing ------
+climate_dir <- file.path('..','data','climate')
+new_crs <- crs(rast(paste0(climate_dir,'/topoterra_2C_2000.tif')))
+w_states <- read_sf('../data/western_states/western_states.shp') %>% 
+  st_transform(., new_crs)
+
+plot(w_states$geometry)
+points(veg_votes_df$x[1000500],veg_votes_df$y[1000500], col = 'red')
+points(veg_votes_df$)
 
 
 
