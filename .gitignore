@@ -3,6 +3,8 @@
 
 # Data folder
 data/*
+output/*
+figures/*
 
 # History files
 .Rhistory
