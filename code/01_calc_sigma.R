@@ -162,7 +162,7 @@ options(future.globals.maxSize = 5000000000)
 plan(multicore, workers = 46)
 
 chunks |>
-  iwalk(\(chunk, chunk_idx){
+  iwalk(\(chunk, chunk_idx) {
      
     # Calculate sigmas to analogs for each focal point
     sigma_dt <- seq_len(nrow(chunk[[1]])) |>
@@ -170,20 +170,9 @@ chunks |>
     
     # Save as RDS
     saveRDS(sigma_dt,
-            paste0("../data/sigma_output/sigma_dt_", chunk_idx, ".Rds"))
+            paste0("data/sigma_output/sigma_dt_", chunk_idx, ".Rds"))
     
     # Explicitly remove and free memory each iteration
     rm(sigma_dt)
     gc()
   })
-
-
-
-
-
-
-
-
-
-
-
