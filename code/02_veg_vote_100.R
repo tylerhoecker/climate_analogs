@@ -2,7 +2,6 @@ library(tidyverse)
 library(terra)
 library(sf)
 library(data.table)
-
 # Point to sigma output
 simga_path <- '../data/sigma_output_11-24'
 sigma_output <- list.files(simga_path, full.names = T) 
@@ -21,8 +20,6 @@ sigma_output <- list.files(simga_path, full.names = T)
 #simlplify_bps = FALSE
 # Landfire BPS data
 lf_bps <- rast('../data/landfire/lf_bps_west_220.tif')
-lf_simple <-classify(lf_bps, cbind(bps_key$VALUE,bps_key$veg_num))
-writeRaster(lf_simple, '../data/landfire/lf_west_220_simple.tiff')
 names(lf_bps) <- 'bps'
 
 veg_vote_fn <- function(chunk, simlplify_bps){
@@ -35,61 +32,48 @@ veg_vote_fn <- function(chunk, simlplify_bps){
     bps_rast <- lf_bps
   }
   
-  #veg_chunk_df 
-  test <- chunk %>% 
+  veg_chunk_df <- chunk %>% 
     readRDS() %>% 
     mutate(focal_id = as.numeric(focal_id)) %>% 
-    # Select focal point from chunk
-    # filter(focal_id == 1) %>%
+    # 1000 best analogs for each point... 
+    group_by(focal_id) %>% 
+    arrange(sigma, .by_group = T) %>%
+    slice_head(n = 100) %>% 
+    ungroup() %>% 
     # Extract Landfire 2020 BPS code
     mutate(bps = extract(bps_rast, as.matrix(.[,c('an_x','an_y')]))[['bps']]) %>% 
-    group_by(focal_id) %>% 
-    # Rescale sigma to 1-0, to use as weight for vote (larger sigma is lower vote)
-    mutate(sigma_z = scales::rescale(sigma, to = c(1,0)),
-           # Record the total number of analogs (< 2 sigma) in pool
-           n_analogs = n()) %>% 
     # For each unique BPS code...
     group_by(focal_id, bps) %>% 
-    # Mean sigma of best 100 analogs... for consistency with previous work
-    arrange(sigma, .by_group = T) %>%
     # Sum the weighted vote (sigma 0-1)
     summarize(# Preserve coordinates
               x = first(x), y = first(y),
-              wt_vote = sum(sigma_z),
               # Count the number of analogs in pool w/ this BPS code
-              raw_vote = n(),
-              # Retain the total number of analogs in pool
-              n_analogs = first(n_analogs),
-              # Calculate the proportion of votes for BPS code
-              wt_prop = wt_vote/n_analogs,
-              raw_prop = raw_vote/n_analogs,
-              mean_sigma_100 = mean(sigma[1:100], na.rm = T),
-              dist_bps = min(dist_m)) %>% 
+              votes = n(),
+              prop = votes/100,
+              mean_sigma = mean(sigma),
+              dist_bps_km = round(min(dist_m)*0.001, 0)) %>% 
     # This sequence saves the rows for each focal point, one for each BPS class,
     # that account for 80% of the (unweighted) analogs 
-    arrange(desc(raw_prop), .by_group = T) %>% 
+    arrange(desc(prop), .by_group = T) %>% 
     filter(
       cumsum(
-        raw_prop == accumulate(
-          raw_prop, ~ ifelse(.x <= .80, .x + .y, .y))) == 1) %>% 
+        prop == accumulate(
+          prop, ~ ifelse(.x <= .80, .x + .y, .y))) == 1) %>% 
     mutate(n_bps = length(bps),
-           win_prop_raw = first(raw_prop)) %>%
+           win_prop = first(prop)) %>%
     # Could save the winning BPS class by raw vote instead/addition to weighted BPS
     # mutate(raw_bps = first(bps)) %>% 
     # Instead, sort by the weighted votes for BPS classes
-    arrange(desc(wt_prop), .by_group = T) %>% 
     # And save the 
     slice_head(n = 3) %>%  
     summarise(x = first(x), y = first(y),
               bps1 = bps[1],
               bps2 = bps[2],
               bps3 = bps[3],
-              win_prop = first(wt_prop),
-              win_prop_raw = first(win_prop_raw),
-              n_analogs = first(n_analogs),
+              win_prop = first(prop),
               n_bps = first(n_bps),
-              mean_sigma = first(mean_sigma_100),
-              dist_bps_km = round(first(dist_bps)*0.001, 0))  
+              mean_sigma = first(mean_sigma),
+              dist_bps_km = first(dist_bps_km))  
   
   current_bps <- extract(bps_rast, as.matrix(veg_chunk_df[,c('x','y')]))[['bps']]
   
@@ -100,13 +84,14 @@ veg_vote_fn <- function(chunk, simlplify_bps){
 
 veg_votes_df <- map_dfr(sigma_output, veg_vote_fn, simlplify_bps = FALSE)
   
-saveRDS(veg_votes_df, 'wa_veg_proj_fullBPS.Rds')
-veg_votes_df <- readRDS('wa_veg_proj_fullBPS.Rds')
+saveRDS(veg_votes_df, 'wa_veg_proj_fullBPS_fixedN_1000.Rds')
+veg_votes_df <- readRDS('wa_veg_proj_fullBPS_fixedN_1000.Rds')
+
 #-------------------------------------------------------------------------------
 # Rasterize and write out the TIFFs
 bps_key <- read_csv('../data/bps_simplification.csv')
 
-list('current_bps','bps1','bps2','bps3','mean_sigma_100','dist_bps_km','win_prop_raw','n_bps') %>%  #'current_bps','bps1','bps2','bps3','win_prop_raw','n_analogs','n_bps','mean_sigma_100') %>%  
+list('current_bps','bps1','bps2','bps3','mean_sigma','dist_bps_km','win_prop','n_bps') %>%  #'current_bps','bps1','bps2','bps3','win_prop_raw','n_analogs','n_bps','mean_sigma_100') %>%  
   walk(function(band) {
     
     print(paste0('Rasterizing ',band,'...'))
@@ -118,10 +103,10 @@ list('current_bps','bps1','bps2','bps3','mean_sigma_100','dist_bps_km','win_prop
     # if(band %in% c('current_bps','bps1','bps2','bps3')){
     #   r <- classify(r, cbind(bps_key$VALUE,bps_key$veg_num))
     # }
-    # 
+    
     r <- project(r, 'EPSG:4326', method = 'near')
     
-    writeRaster(r, filename = paste0('../output/gee_InfN/fullBPS/wa_',band,'.tiff'), overwrite = T)
+    writeRaster(r, filename = paste0('../output/gee_fixedN/fullBPS/wa_',band,'.tiff'), overwrite = T)
     
     return(r)
   }) 
