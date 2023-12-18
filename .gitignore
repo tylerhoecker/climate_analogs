@@ -11,7 +11,7 @@ data/*
 # Session Data files
 .RData
 .RDataTmp
-.Rds
+*.Rds
 
 # User-specific files
 .Ruserdata
