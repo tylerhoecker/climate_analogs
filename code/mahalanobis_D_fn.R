@@ -10,17 +10,15 @@ md_fun <- function(pt_i,
                    n_analog_keep, 
                    min_dist) {
         
+        print(pt_i)
+
         # Build cov matrix for pt_i from 30 years of annual projected future data
         cov_i <- map(focal_data_cov, ~ .x[pt_i]) |>
             rbindlist() |>
             dplyr::select(-x, -y) |>
             cov()
 
-        print(cov_i)
-
         # Calculate the mean of the future annuals -----------------------------------
-        # This provides different result than calculating the mean here...
-        # probably a result of the downscaling process
         # Option to supply these mean focal data rather than derive (in the case of contemporary validation)
         if(is.data.table(focal_data_mean)){
             focal_mean <- focal_data_mean[pt_i] |>
@@ -28,12 +26,11 @@ md_fun <- function(pt_i,
                 unlist()
         } else {
             focal_mean <- map(focal_data_cov, ~ .x[pt_i]) |>
-            rbindlist() |>
-            summarise(across(all_of(var_names), mean)) |>
-            unlist()
+                rbindlist() |>
+                # Calculate mean of 30 years for every point (row in data.table)
+                summarise(across(all_of(var_names), mean)) |>
+                unlist()
         }
-
-        print(focal_mean)
 
         # Analog pool (from historical normals) --------------------------------------
         # This could be integrated with the chunk below, using slice_sample,
@@ -47,8 +44,6 @@ md_fun <- function(pt_i,
             dplyr::select(-x, -y) |>
             as.matrix()
         
-        print(analog_mat)
-
         # Sigma dissimilarity between pt_i and analog pool ---------------------------
         # Calculate Mahalanobis distances
         d <- mahalanobis(analog_mat, focal_mean, cov_i)
@@ -59,7 +54,7 @@ md_fun <- function(pt_i,
         # a chi-squared distribution function, and then unsquare the result. 
         # stats::chisq is an order of magnitude faster than chi::qchi.
         
-        # Convert distances to percentiles of chi distribution (mulit-dimensional normal)
+        # Convert distances to percentiles of chi-squared distribution (mulit-dimensional normal)
         # df = number of dimensions / climate variables
         p <- pchisq(d, df = length(focal_mean))
         # Convert percentiles into quantiles (standard deviations from mean)
@@ -87,7 +82,6 @@ md_fun <- function(pt_i,
 
         rm(cov_i, focal_mean, random_pts, analog_mat, d, p, sigma)
         gc()
-        print(out_dt)
         return(out_dt)
         }    
 # Wrapper function for a given dataframe of focal locations and climate data
@@ -117,7 +111,7 @@ find_analogs <- function(focal_data_cov, # Repeated observations from focal loca
                            n_analog_keep = n_analog_keep,
                            min_dist = min_dist)
     } else {
-        sigma_dt <- seq_len(nrow(focal_data_cov[[1]])) |>
+        sigma_dt <- 2 |> #seq_len(nrow(focal_data_cov[[1]])) |>
             map_dfr(md_fun, .id = "focal_id", .progress = TRUE,
                     focal_data_cov = focal_data_cov,
                     focal_data_mean = focal_data_mean,
@@ -129,7 +123,7 @@ find_analogs <- function(focal_data_cov, # Repeated observations from focal loca
     }
     
     # Save as RDS
-    saveRDS(sigma_dt, paste0(output_dir, "/random_tiles", ".Rds"))
+    saveRDS(sigma_dt, paste0(output_dir, ".Rds"))
     
     # Explicitly remove and free memory each iteration
     rm(sigma_dt)
