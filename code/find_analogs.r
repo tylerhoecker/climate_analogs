@@ -4,7 +4,7 @@
 #' @param analog_data Mean observations from potential analogs (ie historical means from across West)
 #' @param var_names Climate variable names; expected to be names for columns in data.tables
 #' @param n_analog_pool Size of global analog pool, sampled randomly from extent of analog_data 
-#' @param n_analog_keep Number of good analogs to keep
+#' @param n_analog_use Number of good analogs to keep
 #' @param min_dist Minimum distance to analogs in meters (for contemporary validation, exlcude nearby points)
 #' @param output_dir Output directory to save resulting data.table as Rds
 #' @param use_futures Do parallel processing with futures/furrr?
@@ -18,7 +18,7 @@ find_analogs <- function(
     analog_data,
     var_names,
     n_analog_pool,
-    n_analog_keep,
+    n_analog_use,
     min_dist,
     output_dir,
     use_futures,
@@ -38,7 +38,7 @@ find_analogs <- function(
                 analog_data,
                 var_names,
                 n_analog_pool,
-                n_analog_keep,
+                n_analog_use,
                 min_dist
             )
     } else {
@@ -52,7 +52,7 @@ find_analogs <- function(
                 analog_data,
                 var_names,
                 n_analog_pool,
-                n_analog_keep,
+                n_analog_use,
                 min_dist
             )
     }

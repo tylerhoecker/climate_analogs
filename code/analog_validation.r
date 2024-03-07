@@ -21,73 +21,79 @@ source(here("code/as.data.table.r"))
 # Data setup -------------------------------------------------------------------
 gis_dir <- "/Users/hoecker/Library/CloudStorage/GoogleDrive-tyler.hoecker@vibrantplanet.net/My Drive/GIS_Data/"
 
-# Create validation set ------------------------------------------------------------------
-# From the West-wide climate data, sample a subset of points to run
-# validation on.
-# Create a n*n tile grid across the study area
-# tile_grid <- st_make_grid(ann_fut[[1]], n = 300)
-# Sample n of these tiles
-# tile_grid_samp <- vect(sample(tile_grid, 20))
-huc12s <- st_read(here(gis_dir, "huc12/huc12_western_states_good.gpkg"))
-random_hucs <- huc12s[sample(1:length(huc12s[["objectid"]]), size = 10), ] |>
-  st_transform(crs = st_crs(ann_fut[[1]]))
-# plot(random_hucs$geom)
-
 # Move to script/function
 # -------------------------------------------------------------------------------
 # Read in climate data, crop, convert to data.table
 # 2C annuals
-ann_fut <- grep(
-  "topoterra_2C_[0-9]{4}.tif",
-  list.files(paste0(gis_dir, "TopoTerra")),
-  value = TRUE
-  # We have 31 years of data... drop 1985 to make it an even 30-yr normal
-  )[2:31] |>
-  paste0(climate_dir, "/", ... = _) |>
-  map(\(x) rast(x))
+# ann_fut <- grep(
+#   "topoterra_2C_[0-9]{4}.tif",
+#   list.files(
+#     paste0(gis_dir, "TopoTerra/Annual futures"),
+#     full.names = TRUE
+#   ),
+#   value = TRUE
+#   # We have 31 years of data... drop 1985 to make it an even 30-yr normal
+#   )[2:31] |>
+#   map(\(x) rast(x))
 
+# Create validation set ------------------------------------------------------------------
+# - TILES
+# Create a n*n tile grid across the study area
+# tile_grid <- st_make_grid(ann_fut[[1]], n = 300)
+# Sample n of these tiles
+# tile_grid_samp <- vect(sample(tile_grid, 20))
+# - HUCS
+# huc12s <- st_read(here(gis_dir, "huc12/huc12_western_states_good.gpkg"))
+# random_hucs <- huc12s[sample(1:length(huc12s[["objectid"]]), size = 10), ] |>
+#   st_transform(crs = st_crs(ann_fut[[1]]))
+# plot(random_hucs$geom)
+# write_sf(random_hucs, "data/random_hucs.gpkg")
+random_hucs <- read_sf("data/random_hucs.gpkg")
 
+# Crop to random_hucs
 # Mask each element of ann_fut to these sample tiles
-fut_samp <- ann_fut |>
-  map(\(x) mask(x, random_hucs))
-
-# Convert each element into a data.table
-fut_samp <- lapply(fut_samp, FUN = as.data.table, xy = TRUE)
-
-# This is slow, save for convenience for now
-saveRDS(fut_samp, "fut_samp.Rds")
+# fut_samp <- ann_fut |>
+#   map(\(x) mask(x, random_hucs))
+# # Convert each element into a data.table
+# fut_samp <- lapply(fut_samp, FUN = as.data.table, xy = TRUE)
+# # This is slow, save for convenience for now
+# saveRDS(fut_samp, "fut_samp.Rds")
+fut_samp <- readRDS("fut_samp.Rds")
 
 # For contemporary validation, the focal cells will be historical normals, but we will
 # build the covariance matrix based on the future annuals, because that works here
 # Historical normals (downscaled from TerraClimate normals)
 norm_hist <- grep(
   "topoterra_hist_[0-9]{4}-[0-9]{4}.tif",
-  list.files(climate_dir),
+  list.files(
+    paste0(gis_dir, "TopoTerra/Normals"),
+    full.names = TRUE
+  ),
   value = TRUE
 ) |>
-  paste0(climate_dir, "/", ... = _) |>
   rast() |>
   as.data.table(xy = TRUE)
 
 # Create the same random sample of tiles for the historical data
 hist_samp <- grep(
   "topoterra_hist_[0-9]{4}-[0-9]{4}.tif",
-  list.files(climate_dir),
+  list.files(
+    paste0(gis_dir, "TopoTerra/Normals"),
+    full.names = TRUE
+  ),
   value = TRUE
 ) |>
-  paste0(climate_dir, "/", ... = _) |>
   rast() |>
   mask(random_hucs) |>
   as.data.table(xy = TRUE)
 
-# Remove things
-rm(ann_fut, huc12s)
-gc()
-
 # Select contemporary analogs for validation set --------------------------------------------------
 source("code/mahalanobis_D_fn.R")
+source("code/find_analogs.r")
+source("code/calc_sigma.r")
+source("code/analog_impact_fn.R")
 
-# This takes 4.5 hours to 28011 points on 6 cores 
+# This takes 4.5 hours to 28011 points on 6 cores for 5 million points
 # library(profvis)
 start <- Sys.time()
 # profvis({
@@ -95,10 +101,10 @@ find_analogs(focal_data_cov = fut_samp,
              focal_data_mean = hist_samp,
              analog_data = norm_hist,
              var_names = c('aet', 'def', 'tmax', 'tmin'), 
-             n_analog_pool = 5000000, 
-             n_analog_use = 5000, 
-             min_dist = 50000, 
-             output_dir = "data/validation/5M-pool_5k-keep_50km-min",
+             n_analog_pool = 10000000, 
+             n_analog_use = 1000, 
+             min_dist = 50, # In KM! 
+             output_dir = "data/validation/10M-pool_5k-keep_50km-min",
              use_futures = TRUE,
              n_futures = 6)
 # })
@@ -111,16 +117,24 @@ lf_bps_220 <- terra::rast(paste0(gis_dir, "Landfire/lf_bps_west_220.tif")) |>
   terra::project("EPSG:3857", method = "mode")
 # ------------------------------------------------------------------------------
 val_datatable <- readRDS("data/validation/5M-pool_5k-keep_50km-min_2.Rds") 
+val_datatable <- readRDS("data/validation/10M-pool_5k-keep_50km-min.Rds")
 val_datalist <- split(val_datatable, by = "focal_id")
 
 # Quick explore of distance-sigma relationship
-plot_dat <- sample(val_datatable, 10000) 
+plot_dat <- val_datatable |>
+  slice_sample(n = 50000)
+
+ggplot(plot_dat, aes(x = dist_km, y = sigma)) +
+  geom_hex(bins = 50) +
+  # geom_point(alpha = 0.3) +
+  geom_smooth() +
+  theme_bw(base_size = 14)
 
 # Table of function arguments / validation parameters
 val_params <- expand.grid(
   # "n_analog_pool" = c(5000000, 1000000, 500000, 10000), # HOPEFULLY ADD LATER
-  "n_analog_use" = c(5000, 1000, 500),
-  "dist_rule" = c(50000, 100000),
+  "n_analog_use" = c(1000, 500),
+  "dist_rule" = c(50, 100),
   "weighted" = c("TRUE", "FALSE"),
   "n_projections" = 1
   #"val_datatable" = val_datatable
@@ -138,11 +152,11 @@ val_wrapper <- function(
 
       # Evaluate validation parameters
       pt_i <- pt_i |>
-        filter(dist_m > dist_rule) |>
+        filter(dist_km > dist_rule) |>
         arrange(md) |>
         slice_head(n = n_analog_use) 
 
-      veg_vote_fn(
+      analog_impact_fn(
         analog_data = pt_i,
         impact_data = lf_bps_220,
         n_analog_use,

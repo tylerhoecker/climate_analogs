@@ -8,7 +8,7 @@ md_fun <- function(
     analog_data,
     var_names,
     n_analog_pool,
-    n_analog_keep,
+    n_analog_use,
     min_dist
 ) {
     print(pt_i)
@@ -55,21 +55,21 @@ md_fun <- function(
         "f_y" = focal_data_mean[pt_i][["y"]],
         "a_x" = analog_data[random_pts][["x"]],
         "a_y" = analog_data[random_pts][["y"]],
-        "md" 
+        "md" = d
     )
 
     out_dt <- out_dt |>
         # Euclidean/geographic distance between focal point and analogs
         dplyr::mutate("dist_km" = round(sqrt((f_x - a_x)^2 + (f_y - a_y)^2)*0.001, 1)) |>
-        dplyr::filter(dist_m > min_dist) |>
+        dplyr::filter(dist_km > min_dist) |>
         # Sort all analogs by sigma
         dplyr::arrange(md) |>
         # Pick n analogs from pool with lowest sigma value
-        dplyr::slice_head(n = n_analog_keep) |>
+        dplyr::slice_head(n = n_analog_use) |>
         # Other speed improvement: only calculate sigma for the analogs we're keeping!
         # Can order the best 1000 based on D... relative order is the same as sigma.
         dplyr::mutate(sigma = calc_sigma(md, length(focal_mean))) |>
-        dplyr::mutate(sigma = round(sigma, 3),
+        dplyr::mutate(sigma = round(sigma, 4),
                       md = round(md, 3))
 
     rm(cov_i, focal_mean, random_pts, analog_mat, d)
