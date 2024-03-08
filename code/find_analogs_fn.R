@@ -21,8 +21,8 @@ find_analogs <- function(
     n_analog_use,
     min_dist,
     output_dir,
-    use_futures,
-    n_futures
+    use_futures = FALSE,
+    n_futures = 0
 ){
     # Map function over all points in supplied dataset
     if (use_futures == TRUE) {

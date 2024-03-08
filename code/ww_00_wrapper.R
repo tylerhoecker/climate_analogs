@@ -31,28 +31,40 @@ tile_grid <- terra::rast(paste0(focal_climate_dir, "/topoterra_2C_2000.tif")) |>
   sf::st_make_grid(n = 500)
 
 # Here, iterate over grid of tiles ---------------------------------------------
-# Create datatables for tile for annual and future
-tile  <- tile_grid[[198162]]
+seq_len(length(tile_grid)) |>
+  walk(\(tile_i){ print(tile_i)
 
-focal_ann <- create_tile(
-    tile, 
-    climate_dir = focal_climate_dir,
-    annual = TRUE
-)
+    # Define tile in tile_grid
+    tile  <- tile_grid[[tile_i]] #198162
 
-# Find analogs ---------------------------------------------
-start <- Sys.time()
-# profvis({
-find_analogs(focal_data_cov = focal_ann,
-             focal_data_mean = focal_ann,
-             analog_data = norm_hist,
-             var_names = c('aet', 'def', 'tmax', 'tmin'), 
-             n_analog_pool = 10000000, 
-             n_analog_use = 1000, 
-             min_dist = 0, # In KM! 
-             output_dir = "data/test_tile_2",
-             use_futures = FALSE,
-             n_futures = 6)
-# })
-end <- Sys.time()
-start - end
+    # Test if empty
+    test <- terra::extract(
+      terra::rast(
+        list.files(focal_climate_dir, full.names = TRUE)[[1]]
+      ), 
+      vect(tile)
+    )
+    if(all(is.na(test[,-1]))){
+      return(NULL)
+    }
+
+    # Create tile of focal data
+    focal_ann <- create_tile(
+      tile, 
+      climate_dir = focal_climate_dir,
+      annual = TRUE
+    )
+
+    # Conduct analog search for all cells of tile
+    # Calls: calc_mahalanobis and calc_sigma
+    find_analogs(
+      focal_data_cov = focal_ann,
+      focal_data_mean = focal_ann,
+      analog_data = norm_hist,
+      var_names = c('aet', 'def', 'tmax', 'tmin'), 
+      n_analog_pool = 10000000, 
+      n_analog_use = 1000, 
+      min_dist = 0, # In KM! 
+      output_dir = paste0("data/",tile)
+    )
+  })
