@@ -29,8 +29,8 @@ find_analogs <- function(
         options(future.globals.maxSize = 5000000000)
         plan(multicore, workers = n_futures)
         sigma_dt <- seq_len(nrow(focal_data_cov[[1]])) |>
-            future_map_dfr(
-                md_fun, 
+            future_map_dfr(\(x) calc_mahalanobis(
+                pt_i = x, 
                 .id = "focal_id", 
                 .progress = TRUE,
                 focal_data_cov,
@@ -40,20 +40,20 @@ find_analogs <- function(
                 n_analog_pool,
                 n_analog_use,
                 min_dist
-            )
+            ))
     } else {
         sigma_dt <- seq_len(nrow(focal_data_cov[[1]])) |>
-            map_dfr(
-                md_fun, 
-                .id = "focal_id", 
-                .progress = TRUE,
+            map_dfr(\(x) calc_mahalanobis(
+                pt_i = x,  
                 focal_data_cov,
                 focal_data_mean,
                 analog_data,
                 var_names,
                 n_analog_pool,
                 n_analog_use,
-                min_dist
+                min_dist),
+            .id = "focal_id", 
+            .progress = TRUE
             )
     }
     
