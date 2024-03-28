@@ -21,39 +21,48 @@ find_analogs <- function(
     n_analog_use,
     min_dist,
     output_dir,
-    use_futures = FALSE,
-    n_futures = 0
+    use_futures,
+    n_futures
 ){
     # Map function over all points in supplied dataset
-    if (use_futures == TRUE) {
+    if (use_futures == TRUE){
+        # Set up futures
         options(future.globals.maxSize = 5000000000)
-        plan(multicore, workers = n_futures)
+        plan(multisession, workers = n_futures)
+        # Run over all points
         sigma_dt <- seq_len(nrow(focal_data_cov[[1]])) |>
-            future_map_dfr(\(x) calc_mahalanobis(
-                pt_i = x, 
-                .id = "focal_id", 
-                .progress = TRUE,
-                focal_data_cov,
-                focal_data_mean,
-                analog_data,
-                var_names,
-                n_analog_pool,
-                n_analog_use,
-                min_dist
-            ))
+            future_map_dfr(
+                \(x){
+                calc_mahalanobis(
+                    pt_i = x, 
+                    focal_data_cov,
+                    focal_data_mean,
+                    analog_data,
+                    var_names,
+                    n_analog_pool,
+                    n_analog_use,
+                    min_dist
+                )    
+            },  
+            .id = "focal_id"
+            )
+        plan(sequential)
     } else {
         sigma_dt <- seq_len(nrow(focal_data_cov[[1]])) |>
-            map_dfr(\(x) calc_mahalanobis(
-                pt_i = x,  
-                focal_data_cov,
-                focal_data_mean,
-                analog_data,
-                var_names,
-                n_analog_pool,
-                n_analog_use,
-                min_dist),
-            .id = "focal_id", 
-            .progress = TRUE
+            map_dfr(
+                \(x){
+                calc_mahalanobis(
+                    pt_i = x, 
+                    focal_data_cov,
+                    focal_data_mean,
+                    analog_data,
+                    var_names,
+                    n_analog_pool,
+                    n_analog_use,
+                    min_dist
+                )    
+            },  
+            .id = "focal_id"
             )
     }
     
@@ -61,10 +70,6 @@ find_analogs <- function(
     saveRDS(sigma_dt, paste0(output_dir, ".Rds"))
     
     # Explicitly remove and free memory each iteration
-   rm(sigma_dt)
-   
-   # Shut down multiple cores
-   plan(sequential)
-
-   gc()
+    rm(sigma_dt)
+    gc()
 }
