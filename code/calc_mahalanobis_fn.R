@@ -31,10 +31,10 @@ calc_mahalanobis <- function(
             unlist()
     }
 
-    # Analog pool (from historical normals) --------------------------------------
-    # This could be integrated with the chunk below, using slice_sample,
-    # but saving this index will be useful for extracting coordinates later, which we
-    # don't want in the analog_mat
+    n_analog_pool = 1000000
+    tic()
+    # Analog pool (from historical normals) ------------------------------------
+    # Random global sample == n_analog_pool
     random_pts <- seq_len(nrow(analog_data)) |>
         sample(size = n_analog_pool)
 
@@ -46,6 +46,7 @@ calc_mahalanobis <- function(
     # Sigma dissimilarity between pt_i and analog pool ---------------------------
     # Calculate Mahalanobis distances
     d <- mahalanobis(analog_mat, focal_data_mean, cov_i)
+    toc()
 
     # Save output
     out_dt <- data.table(
