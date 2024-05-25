@@ -24,7 +24,7 @@ create_tile <- function(
       terra::rast(
         list.files(climate_dir, full.names = TRUE)[[1]]
       ), 
-      vect(tile_i)
+      terra::vect(tile_i)
     )
     if(all(is.na(test[,-1]))){
       return(NULL)
@@ -32,7 +32,11 @@ create_tile <- function(
 
   # Read in and crop to tile all years of climate data 
   data_rast <- list.files(climate_dir, full.names = TRUE) |>
-    purrr::map(\(x) terra::crop(terra::rast(x), tile_i))
+    purrr::map(\(x){
+      terra::crop(terra::rast(x), tile_i) |>
+        terra::mask(ecoregs)
+    } 
+    )
 
   if(annual != TRUE){
     data_rast <- mean(data_rast)
