@@ -13,7 +13,8 @@ library(furrr)
 library(purrr)
 library(data.table)
 # https://gist.github.com/etiennebr/9515738#file-as-data-table-r
-source("code/as.data.table.r")
+source("code/as.data.table.R")
+source("code/find_analogs_fn.R")
 
 climate_dir <- file.path("data", "climate")
 
@@ -89,7 +90,7 @@ chunks |>
      
     # Calculate sigmas to analogs for each focal point
     sigma_dt <- seq_len(nrow(chunk[[1]])) |>
-      future_map_dfr(md_fun, .id = "focal_id", .progress = TRUE)
+      future_map_dfr(find_analogs, .id = "focal_id", .progress = TRUE)
     
     # Save as RDS
     saveRDS(sigma_dt,

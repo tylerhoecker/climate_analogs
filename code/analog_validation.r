@@ -13,103 +13,94 @@ library(here)
 library(exactextractr)
 library(tmap)
 library(ggplot2)
+library(progressr)
 
 # Convert SpatRast to data.table
 # https://gist.github.com/etiennebr/9515738#file-as-data-table-r
-source(here("code/as.data.table.r"))
-  
-# Data setup -------------------------------------------------------------------
-gis_dir <- "/Users/hoecker/Library/CloudStorage/GoogleDrive-tyler.hoecker@vibrantplanet.net/My Drive/GIS_Data/"
-
+source(here("code/as.data.table.R"))
+climate_dir <- file.path("data", "climate")
 # Move to script/function
 # -------------------------------------------------------------------------------
 # Read in climate data, crop, convert to data.table
 # 2C annuals
-# ann_fut <- grep(
-#   "topoterra_2C_[0-9]{4}.tif",
-#   list.files(
-#     paste0(gis_dir, "TopoTerra/Annual futures"),
-#     full.names = TRUE
-#   ),
-#   value = TRUE
-#   # We have 31 years of data... drop 1985 to make it an even 30-yr normal
-#   )[2:31] |>
-#   map(\(x) rast(x))
+ann_fut <- grep("topoterra_2C_[0-9]{4}.tif",
+                list.files(climate_dir),
+                value = TRUE) |>
+  paste0(climate_dir, "/", ... = _) |>
+  map(\(x) rast(x))
 
 # Create validation set ------------------------------------------------------------------
-# - TILES
-# Create a n*n tile grid across the study area
-# tile_grid <- st_make_grid(ann_fut[[1]], n = 300)
-# Sample n of these tiles
-# tile_grid_samp <- vect(sample(tile_grid, 20))
-# - HUCS
-# huc12s <- st_read(here(gis_dir, "huc12/huc12_western_states_good.gpkg"))
-# random_hucs <- huc12s[sample(1:length(huc12s[["objectid"]]), size = 10), ] |>
-#   st_transform(crs = st_crs(ann_fut[[1]]))
-# plot(random_hucs$geom)
-# write_sf(random_hucs, "data/random_hucs.gpkg")
-random_hucs <- read_sf("data/random_hucs.gpkg")
-
-# Crop to random_hucs
+# mask to washington
+w_states <- vect("data/western_states/western_states.shp") |>
+  project(crs(ann_fut[[1]]))
+washington <- w_states |>
+  subset(NAME == c("Washington"), NSE = T)
+max_dist <- 500 # in KM
+washington_buffer <- buffer(washington, max_dist*1000)
+# Crop to washington
 # Mask each element of ann_fut to these sample tiles
 # fut_samp <- ann_fut |>
-#   map(\(x) mask(x, random_hucs))
+#   map(\(x) mask(x, washington))
+
 # # Convert each element into a data.table
 # fut_samp <- lapply(fut_samp, FUN = as.data.table, xy = TRUE)
-# # This is slow, save for convenience for now
-# saveRDS(fut_samp, "fut_samp.Rds")
-fut_samp <- readRDS("fut_samp.Rds")
+# # # This is slow, save for convenience for now
+# saveRDS(fut_samp, "data/fut_samp.Rds")
+fut_samp <- readRDS("data/fut_samp.Rds")
 
 # For contemporary validation, the focal cells will be historical normals, but we will
 # build the covariance matrix based on the future annuals, because that works here
 # Historical normals (downscaled from TerraClimate normals)
-norm_hist <- grep(
-  "topoterra_hist_[0-9]{4}-[0-9]{4}.tif",
-  list.files(
-    paste0(gis_dir, "TopoTerra/Normals"),
+norm_hist <- list.files(
+    climate_dir, "topoterra_hist_[0-9]{4}-[0-9]{4}.tif",
     full.names = TRUE
-  ),
-  value = TRUE
-) |>
+  ) |>
   rast() |>
+  crop(washington_buffer) |>
   as.data.table(xy = TRUE)
 
 # Create the same random sample of tiles for the historical data
-hist_samp <- grep(
-  "topoterra_hist_[0-9]{4}-[0-9]{4}.tif",
-  list.files(
-    paste0(gis_dir, "TopoTerra/Normals"),
-    full.names = TRUE
-  ),
-  value = TRUE
+hist_samp <- list.files(
+  climate_dir, "topoterra_hist_[0-9]{4}-[0-9]{4}.tif",
+  full.names = TRUE
 ) |>
   rast() |>
-  mask(random_hucs) |>
+  mask(washington) |>
   as.data.table(xy = TRUE)
 
 # Select contemporary analogs for validation set --------------------------------------------------
-source("code/mahalanobis_D_fn.R")
-source("code/find_analogs.r")
-source("code/calc_sigma.r")
+source("code/calc_mahalanobis_fn.R")
+source("code/find_analogs_fn.R")
+source("code/calc_sigma_fn.R")
 source("code/analog_impact_fn.R")
 
-# This takes 4.5 hours to 28011 points on 6 cores for 5 million points
+# This takes 4.5 hours to ~1.4m analogs across washington points on 25 cores
+# calculate n_analog_use
+proportion_landscape <- .1
+n_analog_pool <- round(((2*max_dist)/.270)^2 * proportion_landscape)
+
+# set data.table threads to prevent memory issues
+setDTthreads(1)
 # library(profvis)
 start <- Sys.time()
 # profvis({
-find_analogs(focal_data_cov = fut_samp,
+# test first 12
+# fut_samp <- fut_samp %>%
+#   map(\(x) x[1:12,])
+analog_results <- find_analogs(focal_data_cov = fut_samp,
              focal_data_mean = hist_samp,
              analog_data = norm_hist,
              var_names = c('aet', 'def', 'tmax', 'tmin'), 
-             n_analog_pool = 10000000, 
+             n_analog_pool = n_analog_pool, 
              n_analog_use = 1000, 
              min_dist = 50, # In KM! 
-             output_dir = "data/validation/10M-pool_5k-keep_50km-min",
+             max_dist = max_dist, # In KM!
+             output_dir = "data/validation/washington_500km_50min",
              use_futures = TRUE,
-             n_futures = 6)
+             n_futures = 33) # 30 futures, norm_hist reduced to 1000km
 # })
 end <- Sys.time()
-start - end
+end - start
 
 # Actual validation part starts here.... move to own script eventually
 # Vegetation
