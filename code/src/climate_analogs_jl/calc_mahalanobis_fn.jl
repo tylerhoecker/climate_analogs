@@ -127,7 +127,8 @@ function calc_mahalanobis(
     
     
     d = @suppress calculate_sqmahalanobis_distance(cov_i, analog_mat, focal_data_mean_i)
-    
+    cov_i = nothing
+    analog_mat = nothing
 
     f_x = focal_data_cov[1][pt_i,"x"]
     f_y = focal_data_cov[1][pt_i,"y"]
@@ -145,7 +146,11 @@ function calc_mahalanobis(
     )
 
    final_out_dt = process_mahalanobis_data(out_dt, f_x, f_y, min_dist, n_analog_use, focal_data_mean_i) 
-   
+   f_x = nothing
+   f_y = nothing
+   min_dist = nothing
+   n_analog_use = nothing
+   focal_data_mean_i = nothing
     
     return final_out_dt
 end

@@ -3,6 +3,7 @@ using DataFramesMeta
 using ProgressMeter
 using Suppressor
 using CSV
+using Base.Threads
 
 function calculate_analogs(
     focal_data_cov::Vector{Any},
@@ -26,6 +27,7 @@ function calculate_analogs(
     else
       filtered_analog_data = analog_data
     end
+    analog_data = nothing
     result_i = Suppressor.@suppress calc_mahalanobis(
         x,
         focal_data_cov,
@@ -44,7 +46,7 @@ function calculate_analogs(
     result_i
   end
   
-  function run_calculate_analogs(
+  function calculate_analogs_distributed(
     focal_data_cov::Vector{Any},
     focal_data_mean::DataFrame,
     analog_data::DataFrame,
@@ -85,6 +87,107 @@ function calculate_analogs(
     end
     return result
   end
+
+  function calculate_analogs_threaded(
+    focal_data_cov::Vector{Any},
+    focal_data_mean::DataFrame,
+    analog_data::DataFrame,
+    var_names::Vector{String},
+    n_analog_pool::Integer,
+    n_analog_use::Integer,
+    min_dist::Union{AbstractFloat, Integer},
+    max_dist::Union{AbstractFloat, Integer},
+    output_csv::String,
+    error_file::String)
+
+    # Determine the total number of rows needed in the output DataFrame
+    total_rows = nrow(focal_data_cov[1]) * n_analog_use
+
+    # Preallocate the output DataFrame with the required columns
+    result_df = DataFrame(
+      a_x = Vector{Float32}(undef,total_rows),
+      a_y = Vector{Float32}(undef,total_rows),
+      md = Vector{Float32}(undef,total_rows),
+      dist_km = Vector{Float32}(undef,total_rows),
+      sigma = Vector{Float32}(undef,total_rows),
+      f_x = Vector{Float32}(undef,total_rows),
+      f_y = Vector{Float32}(undef,total_rows)
+    
+    )
+
+    # Initialize a lock for thread-safe operations
+    lk = ReentrantLock()
+
+    
+
+ # Determine the number of threads and split data accordingly
+ n_threads = nthreads()
+ n_per_thread = ceil(Int, size(focal_data_cov[1], 1) / n_threads)
+ p = Progress(nrow(focal_data_cov[1]))
+
+ result_df = Threads.@threads for t in 1:n_threads
+     start_idx = (t - 1) * n_per_thread + 1
+     end_idx = min(t * n_per_thread, size(focal_data_cov[1], 1))
+     focal_data_cov_i = Vector{Any}(undef, size(focal_data_cov,1))
+     for i in 1:size(focal_data_cov,1)
+      focal_data_cov_i[i] = focal_data_cov[i][start_idx:end_idx, :]
+     end
+      focal_data_mean_i = focal_data_mean[start_idx:end_idx, :]
+    
+     #preallocate local DataFrame
+     i_rows = (end_idx-start_idx+1) * n_analog_use
+    df_i = DataFrame(
+      a_x = Vector{Float32}(undef,i_rows),
+      a_y = Vector{Float32}(undef,i_rows),
+      md = Vector{Float32}(undef,i_rows),
+      dist_km = Vector{Float32}(undef,i_rows),
+      sigma = Vector{Float32}(undef,i_rows),
+      f_x = Vector{Float32}(undef,i_rows),
+      f_y = Vector{Float32}(undef,i_rows))
+
+     for x in start_idx:end_idx
+        adj_x = x-(start_idx-1)
+        df_x_1 = ((adj_x-1)*100) + 1
+        df_x_end = df_x_1+100-1
+        
+         try
+             # Calculate analogs for the current focal point
+             df_i[df_x_1:df_x_end, :] = calculate_analogs(
+                 focal_data_cov_i,
+                 focal_data_mean_i,
+                 analog_data,
+                 var_names,
+                 n_analog_pool,
+                 n_analog_use,
+                 min_dist,
+                 max_dist,
+                 adj_x
+             )
+             next!(p)
+            GC.gc(false)
+             # Check memory and log errors, thread-safely
+             if x % 100 == 0 && Sys.free_memory() < 10e9
+                 lock(lk) do
+                     open(error_file, "a") do f
+                         write(f, "Broke at $x\n")
+                     end
+                 end
+             end
+         catch e
+             lock(lk) do
+                 open(error_file, "a") do f
+                     write(f, "$x\n")
+                 end
+             end
+         end
+     end
+
+ end
+
+  # Return the filled DataFrame
+  result_df = reduce(vcat, result_df)
+  return result_df
+end
   
   
   function find_analogs(
@@ -96,7 +199,8 @@ function calculate_analogs(
     n_analog_use::Integer,
     min_dist::Union{AbstractFloat, Integer},
     max_dist::Union{AbstractFloat, Integer},
-    output_file::String)
+    output_file::String,
+    compute_function::Function)
     # Map function over all points in supplied dataset
     # write headers to CSV if csv does not exist
     output_csv = joinpath(output_file) * ".csv"
@@ -146,7 +250,7 @@ function calculate_analogs(
             tile,
             max_dist)
         # Run the calculate_analogs function
-        result_i = run_calculate_analogs(
+        result_i = compute_function(
             filtered_cov_data,
             filtered_data_mean,
             filtered_analog_data,
@@ -162,7 +266,7 @@ function calculate_analogs(
       end
     final_result = "Finished all tiles"
     else
-      result = run_calculate_analogs(
+      result = compute_function(
           focal_data_cov,
           focal_data_mean,
           analog_data,
