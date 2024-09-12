@@ -15,14 +15,14 @@
 
 
 using Distributions
-function calc_sigma(d, dimensions)
+function calc_sigma(d::AbstractFloat, dimensions::Int)
     # Convert distances to percentiles of chi-squared distribution (mulit-dimensional normal)
     # df = number of dimensions / climate variables
     p = cdf(Chisq(dimensions), d)
     # Convert percentiles into quantiles (standard deviations from mean)
     sigma = quantile(Chisq(1), p) # df is now 1
     # Here, take square root to unsquare the "distances"
-    sigma = sqrt(sigma) 
+    sigma = sqrt(sigma) |> Float32
 
     return sigma
 end

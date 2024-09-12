@@ -13,7 +13,7 @@ great_circle_distance <- function(lat1, lon1, lat2, lon2) {
     # Calculate the great circle distance
     a <- sin(dlat / 2)^2 + cos(lat1) * cos(lat2) * sin(dlon / 2)^2
     c <- 2 * asin(sqrt(a))
-    R <- 6371 # Earth's radius in km
+    R <- 6378.137 # Earth's radius in km
     return(R * c)
 }
 
@@ -33,9 +33,9 @@ max_distance_coordinates <- function(lat, lon, max_dist) {
 
     # Return the new coordinates as a list
     return(list(
-        "north" = c(new_lat_north, lon),
-        "south" = c(new_lat_south, lon),
-        "east" = c(lat, new_lon_east),
-        "west" = c(lat, new_lon_west)
+        "north" = c(new_lat_north),
+        "south" = c(new_lat_south),
+        "east" = c(new_lon_east),
+        "west" = c(new_lon_west)
     ))
 }
