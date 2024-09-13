@@ -5,8 +5,8 @@ library(tictoc)
 library(purrr)
 library(data.table)
 library(dplyr)
-source("code/calc_sigma_fn.R")
-source("code/geography_fns.R")
+source("code/src/climate_analogs_R/calc_sigma_fn.R")
+source("code/src/climate_analogs_R/geography_fns.R")
 
 calc_mahalanobis <- function(
     pt_i,
@@ -42,8 +42,7 @@ calc_mahalanobis <- function(
 
 
     # Build reference matrix from random sample of historical normals
-    analog_mat <- analog_data[random_pts, ] |>
-        dplyr::select(-x, -y) |>
+    analog_mat <- input_sample[, var_names, env = list(var_names = as.list(var_names))] |>
         as.matrix()
 
     # Sigma dissimilarity between pt_i and analog pool ---------------------------
@@ -54,18 +53,13 @@ calc_mahalanobis <- function(
     f_x <- focal_data_cov[[1]][pt_i][["x"]]
     f_y <- focal_data_cov[[1]][pt_i][["y"]]
     # Save output
-    out_dt <- data.table(
-        "a_x" = analog_data[random_pts][["x"]],
-        "a_y" = analog_data[random_pts][["y"]],
-        "md" = d
-    )
 
-    out_dt <- out_dt[, dist_km := round(great_circle_distance(a_y, a_x, f_y, f_x), 1)][
+    out_dt <- insert_df[, dist_km := round(great_circle_distance(a_y, a_x, f_y, f_x), 1)][
         dist_km > min_dist & dist_km < max_dist
     ][
         order(md)
     ][
-        out_dt[, .I[seq_len(n_analog_use)]]
+        insert_df[, .I[seq_len(n_analog_use)]]
     ][
         , sigma := calc_sigma(md, length(focal_data_mean))
     ][
@@ -79,7 +73,7 @@ calc_mahalanobis <- function(
     ]
     # the above is equivalent to:
 
-    # out_dt <- out_dt |>
+    # out_dt <- insert_df |>
     #     # Euclidean/geographic distance between focal point and analogs
     #     dplyr::mutate("dist_km" = round(great_circle_distance(a_y,a_x,f_y,f_x), 1)) |>
     #     dplyr::filter(dist_km > min_dist) |>
@@ -92,7 +86,7 @@ calc_mahalanobis <- function(
     #     dplyr::mutate(sigma = calc_sigma(md, length(focal_data_mean))) |>
     #     dplyr::mutate(sigma = round(sigma, 4),
     #                   md = round(md, 3))
-    rm(focal_data_mean, random_pts, analog_mat, d)
+    rm(focal_data_mean, input_sample, analog_mat, d)
     # This takes ~50% of compute time... not sure if neccesary to prevent memory leakge
     gc()
     return(out_dt)

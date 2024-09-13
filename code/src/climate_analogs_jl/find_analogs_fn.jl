@@ -61,7 +61,7 @@ function calculate_analogs(
 		# Use the coordinates to filter the analog data using DataFrames
 
 		indices = @inbounds findall(
-			create_bitVector(analog_data, coords),
+			create_bitVector(analog_data, coords), #134 ms 3 allocations
 		) # 196ms with 24 allocations just for this check #with for loop 148 ms 5 allocations
 
 
@@ -126,7 +126,7 @@ function calculate_analogs_distributed(
 				n_analog_use,
 				min_dist,
 				max_dist,
-				x) #349 ms 1450 allocations
+				x) #344 ms 1956 allocations
 
 			if x % 100 == 0 && Sys.free_memory() < 10e9
 				open(error_file, "a") do f
@@ -182,7 +182,7 @@ function find_analogs(
 		focal_data_cov,
 		focal_data_mean,
 		analog_data,
-		n_analog_use)
+		n_analog_use) # 148 μs 1696 allocations
 	flush(stdout)
 
 	if !isnothing(tile_ids)

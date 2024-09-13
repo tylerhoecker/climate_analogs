@@ -68,8 +68,10 @@ function process_mahalanobis_data(
 )
 
 	# Calculate great circle distance and round to 1 decimal place
+	a_y = insert_df[!, :a_y]
+	a_x = insert_df[!, :a_x]
 
-	insert_df.dist_km = round.(great_circle_distance(insert_df.a_y, insert_df.a_x, f_y, f_x), digits = 1) #24.1ms
+	insert_df.dist_km = round.(great_circle_distance(a_y, a_x, f_y, f_x), digits = 1) #24.1ms
 
 	# Subset the DataFrame based on the minimum distance
 	subset!(insert_df, :dist_km => ByRow(>(min_dist))) # 5 ms

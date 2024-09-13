@@ -12,10 +12,10 @@
 #' @param n_futures Number of workers to futures
 #' #' equal to the number of variables used in the MD calculation
 #' @return A vector of "sigmas" - unsquared standard deviations from a chi-squared distribution
-source("code/calc_mahalanobis_fn.R")
-source("code/calc_sigma_fn.R")
-source("code/spatial_partition_fn.R")
-source("code/geography_fns.R")
+source("code/src/climate_analogs_R/calc_mahalanobis_fn.R")
+source("code/src/climate_analogs_R/calc_sigma_fn.R")
+source("code/src/climate_analogs_R/spatial_partition_fn.R")
+source("code/src/climate_analogs_R/geography_fns.R")
 library(future)
 library(furrr)
 library(data.table)
@@ -60,22 +60,26 @@ calculate_analogs <- function(
     x) {
     if (max_dist != Inf) {
         coords <- max_distance_coordinates(focal_data_cov[[1]][x, "y"], focal_data_cov[[1]][x, "x"], max_dist)
-
+        # 1.4 ms
         # Use the coordinates to filter the analog data
         bit_vector <- create_bitVector(analog_data, coords)
-        indices <- which(bit_vector)
+        # 236 ms
+        # alternative to create_bitVector
 
-        filtered_analog_data <- analog_data[indices, ]
+
+        indices <- which(bit_vector)
+        # 15 ms
+        filtered_analog_data <- analog_data[indices, ] # 17 ms
     } else {
         filtered_analog_data <- analog_data
     }
 
     analog_data <- NULL
 
-    sampled_analog_data <- sample_analogs(filtered_analog_data, n_analog_pool)
+    sampled_analog_data <- sample_analogs(filtered_analog_data, n_analog_pool) # 50 ms
 
     # Preallocate
-    insert_df <- data.frame(
+    insert_df <- data.table(
         a_x = sampled_analog_data$x,
         a_y = sampled_analog_data$y,
         md = rep(0, n_analog_pool),
@@ -92,7 +96,7 @@ calculate_analogs <- function(
         max_dist,
         sampled_analog_data,
         insert_df
-    ))
+    )) # 490 ms
 
     # Remove filtered_analog_data from memory
     filtered_analog_data <- NULL
@@ -111,43 +115,53 @@ calculate_analogs_distributed <- function(
     n_analog_use,
     min_dist,
     max_dist,
-    error_file) {
-    plan(multisession) # Set up parallel processing
+    error_file,
+    futures_nprocs = 1) {
+    globals_size <- sum(sapply(.GlobalEnv, object.size))
+    furrr_options(
+        seed = TRUE
+    )
+    options(future.globals.maxSize = globals_size + 5 * 1024^3)
+    plan(multisession, workers = futures_nprocs) # Set up parallel processing
+
+    # Set future.globals.maxSize to the size of globals plus 5 GB
+
 
     # Progress bar setup
     handlers(global = TRUE)
-    p <- progressor(along = 1:nrow(focal_data_cov[[1]]))
+    with_progress({
+        p <- progressor(along = 1:nrow(focal_data_cov[[1]]))
 
-    results <- future_map_dfr(1:nrow(focal_data_cov[[1]]), function(x) {
-        p()
-        tryCatch(
-            {
-                result_i <- calculate_analogs(
-                    focal_data_cov,
-                    focal_data_mean,
-                    analog_data,
-                    var_names,
-                    n_analog_pool,
-                    n_analog_use,
-                    min_dist,
-                    max_dist,
-                    x
-                )
+        results <- future_map_dfr(1:nrow(focal_data_cov[[1]]), function(x) {
+            p()
+            tryCatch(
+                {
+                    result_i <- calculate_analogs(
+                        focal_data_cov,
+                        focal_data_mean,
+                        analog_data,
+                        var_names,
+                        n_analog_pool,
+                        n_analog_use,
+                        min_dist,
+                        max_dist,
+                        x
+                    ) # 500 ms
 
-                if (x %% 100 == 0 && memory.size() < 10e9) {
-                    write(paste("Broke at", x), file = error_file, append = TRUE)
+                    if (x %% 100 == 0 && available_memory() < 10 * 1024^2) {
+                        write(paste("Broke at", x), file = error_file, append = TRUE)
+                    }
+
+                    result_i
+                },
+                error = function(e) {
+                    write(as.character(x), file = error_file, append = TRUE)
+                    data.frame()
                 }
-
-                result_i
-            },
-            error = function(e) {
-                write(as.character(x), file = error_file, append = TRUE)
-                data.frame()
-            }
-        )
-        p(sprintf("x=%g", x))
+            )
+        }, .options = furrr_options(seed = TRUE))
     })
-
+    plan(sequential) # Reset to sequential processing
     return(results)
 }
 find_analogs <- function(
@@ -159,7 +173,8 @@ find_analogs <- function(
     n_analog_use,
     min_dist,
     max_dist,
-    output_file) {
+    output_file,
+    futures_nprocs = 1) {
     # Define output CSV file
     output_csv <- paste0(output_file, ".csv")
 
@@ -225,7 +240,8 @@ find_analogs <- function(
                 n_analog_use,
                 min_dist,
                 max_dist,
-                paste0(error_file, "_tile", tile)
+                paste0(error_file, "_tile", tile),
+                futures_nprocs
             )
 
             write_csv(result_i, paste0(output_csv, "_tile", tile))
@@ -248,7 +264,8 @@ find_analogs <- function(
             n_analog_use,
             min_dist,
             max_dist,
-            error_file
+            error_file,
+            futures_nprocs
         )
 
         write_csv(result, output_csv, append = TRUE)
