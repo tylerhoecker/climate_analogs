@@ -1,4 +1,5 @@
 library(data.table)
+library(caret)
 library(tidyverse)
 join_fn <- function(input_df, input_column, input_csv, by_statement, count_column) {
   # Perform the join using the provided by_statement
@@ -145,3 +146,33 @@ rasterize_predicted_veg <- function(input_df, template, field) {
 #   geom_smooth(method = "lm") +
 #   theme_bw() +
 #   coord_cartesian(ylim = c(0, 1))
+
+# kappa validation
+# calculate cohens kappa
+# build confusion matrix
+build_kappa_wclass <- function(input_df, actual_column, predicted_column, class_col) {
+  classes <- unique(input_df[[class_col]])
+
+  output_list <- vector(length = length(classes))
+  for (class_i in seq_along(classes)) {
+    class <- classes[[class_i]]
+    filtered_df <- input_df[class_col == class, env = list(class_col = class_col)]
+    # convert to factor
+    filtered_df[[actual_column]] <- as.factor(filtered_df[[actual_column]])
+    filtered_df[[predicted_column]] <- as.factor(filtered_df[[predicted_column]])
+    # ensure the levels are the same
+    ## create levels that cover each possible value
+    levels <- unique(c(filtered_df[[actual_column]], filtered_df[[predicted_column]]))
+
+
+    # ensure the levels are the same
+    filtered_df[[actual_column]] <- factor(filtered_df[[actual_column]], levels = levels)
+    filtered_df[[predicted_column]] <- factor(filtered_df[[predicted_column]], levels = levels)
+
+    confusion_mat <- confusionMatrix(filtered_df[[actual_column]], filtered_df[[predicted_column]], mode = "prec_recall")
+    kappa <- confusion_mat$overall["Kappa"]
+    output_list[class_i] <- kappa
+  }
+  output_list <- data.table(class = classes, kappa = output_list)
+  return(output_list)
+}
