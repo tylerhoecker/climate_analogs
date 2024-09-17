@@ -150,10 +150,13 @@ rasterize_predicted_veg <- function(input_df, template, field) {
 # kappa validation
 # calculate cohens kappa
 # build confusion matrix
-build_kappa_wclass <- function(input_df, actual_column, predicted_column, class_col) {
+build_accuracy_stats_wclass <- function(input_df, actual_column, predicted_column, class_col) {
   classes <- unique(input_df[[class_col]])
-
-  output_list <- vector(length = length(classes))
+  length_classes <- length(classes)
+  output_list <- data.frame(
+    class = length_classes, accuracy = length_classes,
+    kappa = length_classes
+  )
   for (class_i in seq_along(classes)) {
     class <- classes[[class_i]]
     filtered_df <- input_df[class_col == class, env = list(class_col = class_col)]
@@ -163,16 +166,13 @@ build_kappa_wclass <- function(input_df, actual_column, predicted_column, class_
     # ensure the levels are the same
     ## create levels that cover each possible value
     levels <- unique(c(filtered_df[[actual_column]], filtered_df[[predicted_column]]))
-
-
     # ensure the levels are the same
     filtered_df[[actual_column]] <- factor(filtered_df[[actual_column]], levels = levels)
     filtered_df[[predicted_column]] <- factor(filtered_df[[predicted_column]], levels = levels)
-
-    confusion_mat <- confusionMatrix(filtered_df[[actual_column]], filtered_df[[predicted_column]], mode = "prec_recall")
+    confusion_mat <- confusionMatrix(filtered_df[[predicted_column]], filtered_df[[actual_column]], mode = "prec_recall")
+    accuracy <- confusion_mat$overall["Accuracy"]
     kappa <- confusion_mat$overall["Kappa"]
-    output_list[class_i] <- kappa
+    output_list[class_i, ] <- c(class, accuracy, kappa)
   }
-  output_list <- data.table(class = classes, kappa = output_list)
   return(output_list)
 }

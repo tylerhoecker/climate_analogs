@@ -1,4 +1,5 @@
 library(tidyverse)
+library(caret)
 library(rlang)
 library(terra)
 library(RColorBrewer)
@@ -273,11 +274,7 @@ BPS_predicted_df <- BPS_predicted_df[complete.cases(BPS_predicted_df), ]
 #     drop_na()
 
 ## binary comparison, if match 1, else 0 then summarize
-BPS_prediction_strength <- BPS_predicted_df[, BPS_match := as.numeric(BPS_name_actual == BPS_name_predicted)][, .(match = mean(BPS_match)), by = dataset]
-# BPS_prediction_strength <- BPS_predicted_df %>%
-#     mutate(BPS_match = as.numeric(BPS_name_actual == simplified_name)) %>%
-#     group_by(dataset) %>%
-#     summarize(match = mean(BPS_match), .groups = "drop")
+BPS_accuracy <- build_accuracy_stats_wclass(BPS_predicted_df, "BPS_name_actual", "BPS_name_predicted", "dataset")
 
 # assess the accuracy of detecting forest vs non-forest
 # BPS
@@ -286,13 +283,9 @@ BPS_predicted_df <- BPS_predicted_df[, Forest_NonForest_predicted := map_chr(BPS
 # BPS_predicted_df <- BPS_predicted_df %>%
 #     mutate(Forest_NonForest_predicted = map_chr(Simplified_BPS_Name, forest_nonforest))
 
-BPS_forest_match <- BPS_predicted_df[, Forest_match := as.numeric(Forest_NonForest_actual == Forest_NonForest_predicted)][, .(match = mean(Forest_match)), by = dataset]
-# BPS_forest_match <- BPS_predicted_df %>%
-#     mutate(Forest_match = as.numeric(Forest_NonForest_actual == Forest_NonForest_predicted)) %>%
-#     group_by(dataset) %>%
-#     summarize(match = mean(Forest_match), .groups = "drop")
-write_csv(BPS_prediction_strength, "data/washington/BPS_prediction_strength.csv")
-write_csv(BPS_forest_match, "data/washington/BPS_forest_match.csv")
+# kappa for forested
+BPS_accuracy_forest <- build_accuracy_stats_wclass(BPS_predicted_df, "Forest_NonForest_actual", "Forest_NonForest_predicted", "dataset")
+
 
 # alternative voting scheme. instead of most votes, let's do a score based system
 # Rescale sigma to 0-1, low sigmas being 1 and high sigmas being 0. Add up the scores for each analog and take the highest score
@@ -309,23 +302,15 @@ BPS_predicted_df <- BPS_csv[BPS_analog_scores, on = "BPS_CODE"]
 BPS_predicted_df <- BPS_predicted_df[, ":="(BPS_predicted = simplified_name, simplified_name = NULL)]
 BPS_predicted_df <- BPS_actual_df[BPS_predicted_df, on = .(f_x, f_y)]
 BPS_predicted_df <- BPS_predicted_df[complete.cases(BPS_predicted_df), ]
-BPS_prediction_strength_score <- BPS_predicted_df[, BPS_match := as.numeric(BPS_name_actual == BPS_predicted)][, .(match = mean(BPS_match)), by = dataset]
-# calculate cohens kappa
-# build confusion matrix
-build_confusion_matrix_wclass <- function(input_df, actual_column, predicted_column, class_col) {
-    output_list <- list()
-    for (class in unique(input_df[[class_col]])) {
-        local_df <- input_df[input_df[[class_col]] == class, env = list(class = class)]
-        confusion_matrix <- table(local_df[[actual_column]], local_df[[predicted_column]])
-        output_list[[class]] <- confusion_matrix
-    }
-}
-BPS_confusion_matrix <- BPS_predicted_df[, .(confusion = table(BPS_name_actual, BPS_predicted)), by = dataset]
+# calculate kappa
+BPS_accuracy_scores_sigma <- build_accuracy_stats_wclass(BPS_predicted_df, "BPS_name_actual", "BPS_predicted", "dataset")
 
 BPS_predicted_df <- BPS_predicted_df[, Forest_NonForest_predicted := map_chr(BPS_predicted, forest_nonforest)]
 BPS_forest_match_score <- BPS_predicted_df[, Forest_match := as.numeric(Forest_NonForest_actual == Forest_NonForest_predicted)][, .(match = mean(Forest_match)), by = dataset]
-write_csv(BPS_prediction_strength_score, "data/washington/BPS_prediction_strength_score.csv")
-write_csv(BPS_forest_match_score, "data/washington/BPS_forest_match_score.csv")
+
+# kappa for forested
+BPS_accuracy_forest_scores <- build_accuracy_stats_wclass(BPS_predicted_df, "Forest_NonForest_actual", "Forest_NonForest_predicted", "dataset")
+
 
 # rate by distance weighted best analogs
 # BPS
@@ -344,12 +329,14 @@ BPS_predicted_df <- BPS_predicted_df[complete.cases(BPS_predicted_df), ]
 
 distance_check <- BPS_predicted_df[, BPS_match := as.factor(BPS_name_actual == simplified_name)][, .(sigmas = mean(sigma), distances = mean(dist_km)), by = .(dataset, BPS_match)]
 
-BPS_prediction_strength_distance <- BPS_predicted_df[, BPS_match := as.numeric(BPS_name_actual == BPS_predicted)][, .(match = mean(BPS_match)), by = dataset]
+
+# calculate kappa
+BPS_accuracy_distances <- build_accuracy_stats_wclass(BPS_predicted_df, "BPS_name_actual", "BPS_predicted", "dataset")
 
 BPS_predicted_df <- BPS_predicted_df[, Forest_NonForest_predicted := map_chr(BPS_predicted, forest_nonforest)]
-BPS_forest_match_distance <- BPS_predicted_df[, Forest_match := as.numeric(Forest_NonForest_actual == Forest_NonForest_predicted)][, .(match = mean(Forest_match)), by = dataset]
-write_csv(BPS_prediction_strength_distance, "data/washington/BPS_prediction_strength_distance.csv")
-write_csv(BPS_forest_match_distance, "data/washington/BPS_forest_match_distance.csv")
+
+# kappa for forested
+BPS_accuracy_forest_distances <- build_accuracy_stats_wclass(BPS_predicted_df, "Forest_NonForest_actual", "Forest_NonForest_predicted", "dataset")
 
 # combine sigma and distance
 # BPS
@@ -365,37 +352,56 @@ BPS_predicted_df <- BPS_predicted_df[, ":="(BPS_predicted = simplified_name, sim
 BPS_predicted_df <- BPS_actual_df[BPS_predicted_df, on = .(f_x, f_y)]
 BPS_predicted_df <- BPS_predicted_df[complete.cases(BPS_predicted_df), ]
 
-BPS_prediction_strength_combined <- BPS_predicted_df[, BPS_match := as.numeric(BPS_name_actual == BPS_predicted)][, .(match = mean(BPS_match)), by = dataset]
+
+# calculate kappa
+BPS_accuracy_combined <- build_accuracy_stats_wclass(BPS_predicted_df, "BPS_name_actual", "BPS_predicted", "dataset")
 
 BPS_predicted_df <- BPS_predicted_df[, Forest_NonForest_predicted := map_chr(BPS_predicted, forest_nonforest)]
-BPS_forest_match_combined <- BPS_predicted_df[, Forest_match := as.numeric(Forest_NonForest_actual == Forest_NonForest_predicted)][, .(match = mean(Forest_match)), by = dataset]
-write_csv(BPS_prediction_strength_combined, "data/washington/BPS_prediction_strength_combined.csv")
-write_csv(BPS_forest_match_combined, "data/washington/BPS_forest_match_combined.csv")
+
+# kappa for forested
+BPS_accuracy_forest_combined <- build_accuracy_stats_wclass(BPS_predicted_df, "Forest_NonForest_actual", "Forest_NonForest_predicted", "dataset")
 
 # combine all the results into a single dataframe labeling the method used
 BPS_results <- rbind(
-    BPS_prediction_strength %>% mutate(method = "Plurality Vote", prediction = "Simplified BPS"),
-    BPS_forest_match %>% mutate(method = "Plurality Vote", prediction = "Forested/nonForested"),
-    BPS_prediction_strength_score %>% mutate(method = "Best cumulative sigma", prediction = "Simplified BPS"),
-    BPS_forest_match_score %>% mutate(method = "Best cumulative sigma", prediction = "Forested/nonForested"),
-    BPS_prediction_strength_distance %>% mutate(method = "Highest cumulative distance 'score'", prediction = "Simplified BPS"),
-    BPS_forest_match_distance %>% mutate(method = "Highest cumulative distance 'score'", prediction = "Forested/nonForested"),
-    BPS_prediction_strength_combined %>% mutate(method = "Highest cumulative combined 'score'", prediction = "Simplified BPS"),
-    BPS_forest_match_combined %>% mutate(method = "Highest cumulative combined 'score'", prediction = "Forested/nonForested")
+    BPS_accuracy %>% mutate(method = "Plurality Vote", prediction = "Simplified BPS"),
+    BPS_accuracy_forest %>% mutate(method = "Plurality Vote", prediction = "Forested/nonForested"),
+    BPS_accuracy_scores_sigma %>% mutate(method = "Best cumulative sigma", prediction = "Simplified BPS"),
+    BPS_accuracy_forest_scores %>% mutate(method = "Best cumulative sigma", prediction = "Forested/nonForested"),
+    BPS_accuracy_distances %>% mutate(method = "Highest cumulative distance 'score'", prediction = "Simplified BPS"),
+    BPS_accuracy_forest_distances %>% mutate(method = "Highest cumulative distance 'score'", prediction = "Forested/nonForested"),
+    BPS_accuracy_combined %>% mutate(method = "Highest cumulative combined 'score'", prediction = "Simplified BPS"),
+    BPS_accuracy_forest_combined %>% mutate(method = "Highest cumulative combined 'score'", prediction = "Forested/nonForested")
 )
 write_csv(BPS_results, "data/washington/BPS_predictions.csv")
 
+# do same for kappa results
 # visualize accuracy metrics
 # BPS
 ## plot the accuracy metrics
 BPS_accuracy_plot <- BPS_results %>%
-    ggplot(aes(x = dataset, y = match, fill = method)) +
+    ggplot(aes(x = class, y = accuracy, fill = method)) +
     geom_bar(stat = "identity", position = "dodge") +
     facet_wrap(~prediction) +
     labs(
         title = "Accuracy of BPS predictions",
         x = "Dataset",
         y = "Accuracy",
+        fill = "Method"
+    ) +
+    ylim(c(0, 1)) +
+    scale_fill_brewer(palette = "Dark2") +
+    theme_bw()
+ggsave("figures/washington/BPS_accuracy_plot.jpg", BPS_accuracy_plot, width = 10, height = 10)
+
+# kappa
+BPS_accuracy_plot <- BPS_results %>%
+    ggplot(aes(x = class, y = kappa, fill = method)) +
+    geom_bar(stat = "identity", position = "dodge") +
+    facet_wrap(~prediction) +
+    labs(
+        title = "Kappa of BPS predictions",
+        x = "Dataset",
+        y = "Kappa",
         fill = "Method"
     ) +
     ylim(c(0, 1)) +
