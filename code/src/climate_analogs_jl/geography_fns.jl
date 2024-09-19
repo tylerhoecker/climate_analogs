@@ -48,7 +48,7 @@ function great_circle_distance(
 	# Calculate the great circle distance
 	a = haversine_formula.(dlat) .+ cos.(lat1) .* cos(lat2) .* haversine_formula.(dlon)
 	c = 2.0f0 .* asin.(sqrt.(a))
-	R = 6371.0f0  # Earth's radius in km
+	R = 6378.137  # Earth's radius in km
 	return R .* c
 end
 
