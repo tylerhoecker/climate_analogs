@@ -169,10 +169,10 @@ function filter_analog_pool(
 	max_dist::Union{AbstractFloat, Integer},
 )
 	# Filter the analog pool to only include points within max_dist of the focal points in the tile
-	min_x = max_distance_coordinates(tile_extents[tile, "min_y"], tile_extents[tile, "min_x"], max_dist)["west"][2]
-	max_x = max_distance_coordinates(tile_extents[tile, "max_y"], tile_extents[tile, "max_x"], max_dist)["east"][2]
-	min_y = max_distance_coordinates(tile_extents[tile, "min_y"], tile_extents[tile, "min_x"], max_dist)["south"][1]
-	max_y = max_distance_coordinates(tile_extents[tile, "max_y"], tile_extents[tile, "max_x"], max_dist)["north"][1]
+	min_x = max_distance_coordinates(tile_extents[tile, "min_y"], tile_extents[tile, "min_x"], max_dist)["west"]
+	max_x = max_distance_coordinates(tile_extents[tile, "max_y"], tile_extents[tile, "max_x"], max_dist)["east"]
+	min_y = max_distance_coordinates(tile_extents[tile, "min_y"], tile_extents[tile, "min_x"], max_dist)["south"]
+	max_y = max_distance_coordinates(tile_extents[tile, "max_y"], tile_extents[tile, "max_x"], max_dist)["north"]
 
 	analog_extents = DataFrame(
 		min_x = min_x,

@@ -3,6 +3,7 @@ using DataFramesMeta
 using ProgressMeter
 using Suppressor
 using CSV
+using CodecZlib
 using Base.Threads
 using Distributed
 
@@ -157,19 +158,8 @@ function find_analogs(
 	output_file::String)
 	# Map function over all points in supplied dataset
 	# write headers to CSV if csv does not exist
-	output_csv = joinpath(output_file) * ".csv"
-	if !isfile(output_csv)
-		CSV.write(output_csv, DataFrame(
-				a_x = Float32[],
-				a_y = Float32[],
-				md = Float32[],
-				dist_km = Float32[],
-				sigma = Float32[],
-				f_x = Float32[],
-				f_y = Float32[],
-			), writeheader = true)
-	end
-	#replace error file
+    output_gzip= joinpath(output_file) * ".csv.gz"
+		#replace error file
 	error_file = joinpath("/project/umontana_climate_analogs/climate_analogs/data", basename(output_file) * "_error.txt")
 
 	open(error_file, "w") do f
@@ -215,7 +205,9 @@ function find_analogs(
 				min_dist,
 				max_dist,
 				error_file * "_tile$tile")
-			CSV.write(output_csv * "_tile$tile", result_i, append = false)
+            open(GzipCompressorStream, output_file * "_tile$tile.csv.gz","w") do stream
+    			CSV.write(stream, result_i, append = false)
+            end
 			result_i = nothing
 			filtered_analog_data = nothing
 			filtered_cov_data = nothing
@@ -234,7 +226,9 @@ function find_analogs(
 			min_dist,
 			max_dist,
 			error_file)
-		CSV.write(output_csv, result, append = true)
+        open(GzipCompressorStream, output_gzip, "w") do stream
+            CSV.write(stream, result, append = false)
+        end
 		final_result = "Finished all points"
 	end
 
