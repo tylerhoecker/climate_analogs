@@ -1,32 +1,36 @@
 using ProgressMeter
 using RCall
+using Base.Threads
 
-
- project_dir = "/project/umontana_climate_analogs/climate_analogs"
-# project_dir = "/home/jeff/Github/ClimateAnalogues/climate_analogs"
+# project_dir = "/project/umontana_climate_analogs/climate_analogs"
+project_dir = "/home/jeff/Github/ClimateAnalogues/climate_analogs"
 begin
-  using Pkg; Pkg.activate(project_dir)
-  Pkg.instantiate(); Pkg.precompile()
-  end
+	using Pkg
+	Pkg.activate(project_dir)
+	Pkg.instantiate()
+	Pkg.precompile()
+end
 
 
 
 
 
-begin  
-using DataFrames
-using DataFramesMeta
-using ProgressMeter
-using Suppressor
-using Distributions
-using Distances
-using Random
-using CSV
-using Statistics
-using StatsBase
-using LinearAlgebra
-#load in custom Julia functions
-include(joinpath(project_dir, "code", "src", "climate_analogs_jl", "climate_analogs.jl"))
+begin
+	using DataFrames
+	using DataFramesMeta
+	using ProgressMeter
+	using Suppressor
+	using Distributions
+	using Distances
+	using Random
+	using CSV
+	using Statistics
+	using StatsBase
+	using LinearAlgebra
+	#load in custom Julia functions
+	using FLoops
+	using ThreadPools
+	include(joinpath(project_dir, "code", "src", "climate_analogs_jl", "climate_analogs.jl"))
 end
 
 
@@ -63,25 +67,25 @@ analog_pool = rcopy(R"readRDS(analog_pool_path)");
 
 
 
-try 
+try
 
 
-alert("datasets for 250x0x10p loaded")
+	alert("datasets for 250x0x10p loaded")
 
-catch e 
+catch e
 
-    println("loaded data") 
+	println("loaded data")
 
-end 
+end
 
 
 #covert data types to lightest possible
 for i in 1:length(annuals_futures)
-  ## convert x and y to float16
-  annuals_futures[i][!, :x] = Float32.(annuals_futures[i][!, :x])
-  annuals_futures[i][!, :y] = Float32.(annuals_futures[i][!, :y])
-  ## convert all other columns to INT16
-  annuals_futures[i][!, Not(:x, :y)] = Int16.(annuals_futures[i][!, Not(:x, :y)])
+	## convert x and y to float16
+	annuals_futures[i][!, :x] = Float32.(annuals_futures[i][!, :x])
+	annuals_futures[i][!, :y] = Float32.(annuals_futures[i][!, :y])
+	## convert all other columns to INT16
+	annuals_futures[i][!, Not(:x, :y)] = Int16.(annuals_futures[i][!, Not(:x, :y)])
 end;
 
 
@@ -110,37 +114,43 @@ analog_pool[!, Not(:x, :y)] = Int16.(round.(analog_pool[!, Not(:x, :y)], digits 
 
 
 proportion_landscape = 0.10
-n_analog_pool::Int32 = round(((2 * max_dist) / 0.270)^2 * proportion_landscape, digits = 0) |> Integer 
+n_analog_pool::Int32 = round(((2 * max_dist) / 0.270)^2 * proportion_landscape, digits = 0) |> Integer
 
-try 
-
-
-alert("starting analogs 250x0x10p")
+try
 
 
-catch e 
+	alert("starting analogs 250x0x10p")
 
-    println("starting analog calculation") 
+
+catch e
+
+	println("starting analog calculation")
 
 end
 
 # library(profvis)
 #start = time()
 # profvis({
-  # test first 12
-  
-    for i in 1:size(annuals_futures,1)
-      annuals_futures[i] = annuals_futures[i][1:500, :]
-    end
-  
-  analog_results = ClimateAnalogs.find_analogs( annuals_futures,
-  normal_futures,
-  analog_pool,
-  ["aet", "def", "tmax", "tmin"],
-  n_analog_pool,
-  100,
-  0, # In KM! 
-  max_dist, # In KM!
-  (project_dir * "/data/sensitivity/250km_0min_10p"), ClimateAnalogs.calculate_analogs_threaded); #
+# test first 12
+
+for i in 1:size(annuals_futures, 1)
+	annuals_futures[i] = annuals_futures[i][1:503, :]
+end
+focal_data_cov = annuals_futures
+focal_data_mean = normal_futures
+analog_data = analog_pool
+var_names = ["aet", "def", "tmax", "tmin"]
+n_analog_use = 100
+min_dist = 0
+output_file = (project_dir * "/data/sensitivity/250km_0min_10p")
+analog_results = ClimateAnalogs.find_analogs(annuals_futures,
+	normal_futures,
+	analog_pool,
+	["aet", "def", "tmax", "tmin"],
+	n_analog_pool,
+	100,
+	0, # In KM! 
+	max_dist, # In KM!
+	(project_dir * "/data/sensitivity/250km_0min_10p")); #
 
 alert("analog results 250x0x10 complete")
