@@ -8,6 +8,10 @@
 #' @param weigh_val Use a distance-weighted vote or a proportional vote?
 #' @param n_projections How many projected classes of AIM to return? (ie, top vote, top 3 vote-getters, etc.)
 #' @return A table of analog and project environmental attributes
+library(dplyr)
+library(terra)
+library(tidyr)
+library(scales)
 
 analog_impact_fn <- function(
   analog_data,

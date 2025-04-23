@@ -13,14 +13,16 @@
 #' #' equal to the number of variables used in the MD calculation
 #' @return A vector of "sigmas" - unsquared standard deviations from a chi-squared distribution
 
-calc_sigma <- function(d, dimensions) {
+
+using Distributions
+function calc_sigma(d::AbstractFloat, dimensions::Int)
     # Convert distances to percentiles of chi-squared distribution (mulit-dimensional normal)
     # df = number of dimensions / climate variables
-    p <- stats::pchisq(d, df = dimensions)
+    p = cdf(Chisq(dimensions), d)
     # Convert percentiles into quantiles (standard deviations from mean)
-    sigma <- stats::qchisq(p, df = 1) # df is now 1
+    sigma = quantile(Chisq(1), p) # df is now 1
     # Here, take square root to unsquare the "distances"
-    sigma <- sqrt(sigma) 
+    sigma = sqrt(sigma) |> Float32
 
-    return(sigma)
-}
+    return sigma
+end
