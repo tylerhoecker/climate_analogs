@@ -6,71 +6,8 @@ library(RColorBrewer)
 library(viridisLite)
 library(data.table)
 source("code/src/climate_analogs_R/veg_vote_fn.R")
+source("code/src/veg_vote_fn.R")
 
-simplify_lf_names <- function(name) {
-    # Convert to lowercase for uniform processing
-    simplified_name <- str_to_lower(name)
-
-
-    # Identify dominant species within the name
-    # This example assumes common species names are of interest. Extend the list as needed.
-    physiogamy_list <- c(
-        "lodgepole pine", "ponderosa pine", "douglas-fir", "englemann spruce",
-        "subalpine fir", "quaking aspen", "aspen", "whitebark pine", "blue oak",
-        "valley oak", "black oak", "sugar maple", "red maple", "bigleaf maple",
-        "green ash", "black ash", "white ash", "cottonwood", "tamarack",
-        "paper birch", "yellow birch", "water birch", "creosotebush", "blackbrush",
-        "white bursage", "mormon-tea", "sparsely vegetated", "bigtooth maple",
-        "sagebrush", "saltbush", "buffalograss", "bluestem", "needlegrass",
-        "pinyon pine", "juniper", "willow", "alder", "sedge", "hemlock",
-        "cypress", "redwood", "western redcedar", "pinyon-juniper", "western juniper", "alder",
-        "herbaceous", "dryas", "shrubland", "grassland", "forest", "wetland", "riparian", "water",
-        "ice", "snow", "sand", "woodland", "savanna", "steppe", "chaparral", "scrub", "heath",
-        "moor", "mire", "fen", "bog", "swamp", "marsh", "wet meadow", "dry meadow", "tundra",
-        "alpine", "subalpine", "montane", "foothill", "lowland", "upland", "highland",
-        "lowland", "floodplain", "alluvial", "riparian", "mixed", "conifer", "deciduous",
-        "evergreen", "broadleaf", "needleleaf", "hardwood", "softwood", "coniferous",
-        "longleaf pine", "post oak", "forest and woodland", "subland-basin",
-        "shrubland-semi-desert", "shrubland-upland", "mountain mahogany", "limber-bristlecone pine",
-        "pine-oak", "conifer-hardwood", "hardwoods", "forest-hemlock", "pine(-oak)",
-        "pine-hemlock-hardwood", "dune", "encinal", "sitka spruce", "beech-maple",
-        "tallgrass", "mixedgrass", "praire", "pine", "oak", "maple", "spruce", "fir",
-        "cedar", "cypress", "hemlock", "juniper", "dwarf-shrub", "black spuce", "dwarf-tree",
-        "peatland", "desert scrub", "desert riparian", "meadow", "praire", "barrens", "savanna"
-    )
-
-    # Find the dominant species in the name
-    found_species <- str_extract_all(simplified_name, paste(physiogamy_list, collapse = "|")) %>%
-        unlist() %>%
-        unique() %>%
-        str_to_title()
-
-    if (length(found_species) > 0) {
-        return(paste(found_species, collapse = "-"))
-    } else {
-        # If no dominant species found, simplify to ecosystem type
-        ecosystem_type <- case_when(
-            str_detect(simplified_name, "forest") ~ "Forest",
-            str_detect(simplified_name, "shrub") ~ "Shrubland",
-            str_detect(simplified_name, "grass") ~ "Grassland",
-            str_detect(simplified_name, "water") ~ "Open Water",
-            str_detect(simplified_name, "ice|snow") ~ "Ice/Snow",
-            str_detect(simplified_name, "rock") ~ "Rock",
-            str_detect(simplified_name, "sand") ~ "Sand",
-            str_detect(simplified_name, "riparian") ~ "Riparian",
-            str_detect(simplified_name, "wetland") ~ "Wetland",
-            TRUE ~ "Other"
-        )
-        return(ecosystem_type)
-    }
-}
-forest_nonforest <- function(group_veg) {
-    group_veg <- str_to_lower(group_veg)
-    case_when(
-        str_detect(group_veg, "forest|woodland|savanna") ~ "Forest",
-        TRUE ~ "Non-Forest"
-    )
-}
 
 # Load the Washington state boundary
 wa <- vect("data/western_states/western_states.shp") |>
@@ -84,8 +21,9 @@ wa_001p_df <- fread("data/washington/500km_0min_001p.csv")[, dataset := "001p"]
 wa_5p_1p_df <- fread("data/washington/500km_0min_5p_1p.csv")[, dataset := "5p_1p"]
 wa_10p_1p_df <- fread("data/washington/500km_0min_10p_1p.csv")[, dataset := "10p_1p"]
 wa_20p_1p_df <- fread("data/washington/500km_0min_20p_1p.csv")[, dataset := "20p_1p"]
+wa_5p_0min_df <- fread("data/washington/500km_0min_5p_0min.csv")[, dataset := "5p_0min"]
 
-wa_df_unfiltered <- rbindlist(list(wa_5p_df, wa_025p_df, wa_001p_df, wa_5p_1p_df, wa_10p_1p_df, wa_20p_1p_df))
+wa_df_unfiltered <- rbindlist(list(wa_5p_df, wa_025p_df, wa_001p_df, wa_5p_1p_df, wa_10p_1p_df, wa_20p_1p_df, wa_5p_0min_df))
 wa_sv_unfiltered <- wa_df_unfiltered %>%
     vect(geom = c("f_x", "f_y"), crs = "EPSG:4326")
 
@@ -371,7 +309,8 @@ BPS_results <- rbind(
     BPS_accuracy_forest_distances %>% mutate(method = "Highest cumulative distance 'score'", prediction = "Forested/nonForested"),
     BPS_accuracy_combined %>% mutate(method = "Highest cumulative combined 'score'", prediction = "Simplified BPS"),
     BPS_accuracy_forest_combined %>% mutate(method = "Highest cumulative combined 'score'", prediction = "Forested/nonForested")
-)
+) %>%
+    mutate(accuracy = as.numeric(accuracy), kappa = as.numeric(kappa))
 write_csv(BPS_results, "data/washington/BPS_predictions.csv")
 
 # do same for kappa results
@@ -394,7 +333,7 @@ BPS_accuracy_plot <- BPS_results %>%
 ggsave("figures/washington/BPS_accuracy_plot.jpg", BPS_accuracy_plot, width = 10, height = 10)
 
 # kappa
-BPS_accuracy_plot <- BPS_results %>%
+BPS_kappa_plot <- BPS_results %>%
     ggplot(aes(x = class, y = kappa, fill = method)) +
     geom_bar(stat = "identity", position = "dodge") +
     facet_wrap(~prediction) +
@@ -407,7 +346,7 @@ BPS_accuracy_plot <- BPS_results %>%
     ylim(c(0, 1)) +
     scale_fill_brewer(palette = "Dark2") +
     theme_bw()
-ggsave("figures/washington/BPS_accuracy_plot.jpg", BPS_accuracy_plot, width = 10, height = 10)
+ggsave("figures/washington/BPS_kappa_plot.jpg", BPS_kappa_plot, width = 10, height = 10)
 
 # sigma dissimilarity
 sigma_df <- wa_df_full[, .(mean = mean(sigma), sd = sd(sigma), min = min(sigma)), by = .(dataset, f_x, f_y)]

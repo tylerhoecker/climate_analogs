@@ -11,8 +11,8 @@ library(data.table)
 
 # Convert SpatRast to data.table
 # https://gist.github.com/etiennebr/9515738#file-as-data-table-r
-source(here("code/as.data.table.r"))
-  
+source("code/as.data.table.R")
+
 # Data setup -------------------------------------------------------------------
 gis_dir <- "/Users/hoecker/Library/CloudStorage/GoogleDrive-tyler.hoecker@vibrantplanet.net/My Drive/GIS_Data/"
 
@@ -38,7 +38,7 @@ gis_dir <- "/Users/hoecker/Library/CloudStorage/GoogleDrive-tyler.hoecker@vibran
 # Sample n of these tiles
 # tile_grid_samp <- vect(sample(tile_grid, 20))
 # - HUCS
-# huc12s <- st_read(here(gis_dir, "huc12/huc12_western_states_good.gpkg"))
+# huc12s <- st_read(paste(gis_dir, "huc12/huc12_western_states_good.gpkg", sep = "/"))
 # random_hucs <- huc12s[sample(1:length(huc12s[["objectid"]]), size = 10), ] |>
 #   st_transform(crs = st_crs(ann_fut[[1]]))
 # plot(random_hucs$geom)

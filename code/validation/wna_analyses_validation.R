@@ -40,15 +40,15 @@ for (file in input_files) {
     BPS_local <- crop(BPS, buffer(project(local_border, crs(BPS)), 500 * 1000))
     BPS_local <- project(BPS_local, template_r, method = "near", threads = TRUE)
     gc()
-    if (file.exists(paste0("data/validation/outputs/cleaned_data/", tile_name, "_cleaned.csv.gz"))) {
-        cleaned_local <- fread(paste0("data/validation/outputs/cleaned_data/", tile_name, "_cleaned.csv.gz"))
-    } else {
-        local_data <- fread(file)
-        cleaned_local <- setup_veg_prediction_bps(local_data, local_border, template_r, BPS_local)
-        fwrite(cleaned_local, paste0("data/validation/outputs/cleaned_data/", tile_name, "_cleaned.csv.gz"), compress = "gzip")
-    }
+    # if (file.exists(paste0("data/validation/outputs/cleaned_data/", tile_name, "_cleaned.csv.gz"))) {
+    #     cleaned_local <- fread(paste0("data/validation/outputs/cleaned_data/", tile_name, "_cleaned.csv.gz"))
+    # } else {
 
-    rm(local_data)
+    cleaned_local <- setup_veg_prediction_bps(fread(file), local_border, template_r, BPS_local)
+    fwrite(cleaned_local, paste0("data/validation/outputs/cleaned_data/", tile_name, "_cleaned.csv.gz"), append = FALSE, compress = "gzip")
+    # }
+    gc()
+
     # compute the predictions using the various methods
 
 
@@ -63,6 +63,8 @@ for (file in input_files) {
     mean_sigma_all <- cleaned_local[, .(mean_sigma_all = mean(sigma)), by = .(f_x, f_y)]
     # merge the mean sigma score to the local_sigma dataframe
     local_sigma <- local_sigma[mean_sigma_all, on = .(f_x, f_y)]
+    rm(mean_sigma_all)
+    gc()
 
     # find the minimum distance to the predicted BPS
     ## build filter data.table
@@ -72,7 +74,9 @@ for (file in input_files) {
     min_dist <- filtered_for_dist[, .(minimum_distance_predicted = min(dist_km)), by = .(f_x, f_y)]
 
     local_sigma <- local_sigma[min_dist, on = .(f_x, f_y)]
+    rm(min_dist, filtered_for_dist)
 
+    gc()
 
 
     # create rasters of predicted and observed vegetation using the sigma method
@@ -146,11 +150,11 @@ for (i in seq_along(fields)) {
         raster_collection[[i]] <- lapply(categorical_rasters, rast, lyrs = field) %>%
             sprc() %>%
             mosaic(fun = "max") %>%
-            terra::merge(., burnin_mask, first = FALSE, na.rm = FALSE) %>%
+            terra::merge(., burnin_mask, first = FALSE) %>%
             reclassify_cpal()
         names(raster_collection[[i]]) <- field
     } else {
-        raster_collection[[i]] <- lapply(rasters_numeric, rast, lyrs = field) %>%
+        raster_collection[[i]] <- lapply(numerical_rasters, rast, lyrs = field) %>%
             sprc() %>%
             mosaic(fun = "max")
         names(raster_collection[[i]]) <- field

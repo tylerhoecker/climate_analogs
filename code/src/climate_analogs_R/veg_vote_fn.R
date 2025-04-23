@@ -325,25 +325,25 @@ setup_veg_prediction_bps <- function(input_csv, input_outline_sv, template_r = N
   analogs_v <- vect(analogs_dt, geom = c("a_x", "a_y"), crs = "EPSG:4326")
 
   if (is.null(BPS)) {
-    BPS_local <- rast("data/veg_data/LC20_BPS_220.tif") %>%
+    BPS <- rast("data/veg_data/LC20_BPS_220.tif") %>%
       crop(., project(buffer(input_outline_sv, 500 * 1000), crs(.))) %>%
       project(., crs(template_local), method = "near") %>%
       resample(., template_local, method = "near")
   } else {
     # check if BPS matches template
     if (ext(BPS) == ext(template_r) & crs(BPS) == crs(template_r)) {
-      BPS_local <- BPS %>%
+      BPS <- BPS %>%
         crop(., buffer(input_outline_sv, 500 * 1000))
     } else {
-      BPS_local <- BPS %>%
+      BPS <- BPS %>%
         crop(., project(buffer(input_outline_sv, 500 * 1000), crs(.))) %>%
         project(., crs(template_local), method = "near") %>%
         resample(., template_local, method = "near")
     }
   }
-  activeCat(BPS_local) <- "BPS_CODE"
+  activeCat(BPS) <- "BPS_CODE"
   # extract BPS and EVT to analogs
-  BPS_analogs <- terra::extract(BPS_local, analogs_v,
+  BPS_analogs <- terra::extract(BPS, analogs_v,
     na.rm = TRUE,
     xy = FALSE
   )
@@ -378,10 +378,9 @@ setup_veg_prediction_bps <- function(input_csv, input_outline_sv, template_r = N
   # plurality votes for each -------
   best_analogs_BPS <- join_fn_BPS(input_csv_full, BPS_csv)
   # join the plurality votes to the full dataframe
-  input_csv_w_analogs <- cbind(input_csv_full, best_analogs_BPS)
+  input_csv_w_analogs <- cbind(input_csv_full, best_analogs_BPS)[, -c("BPS_CODE")]
   input_csv_w_analogs <- input_csv_w_analogs[, ":="(BPS_name_predicted = simplified_name, simplified_name = NULL,
-    Forest_NonForest_predicted = Forest_NonForest, Forest_NonForest = NULL,
-    BPS_CODE_predicted = BPS_CODE, BPS_CODE = NULL)]
+    Forest_NonForest_predicted = Forest_NonForest, Forest_NonForest = NULL)]
   gc()
   # wa_dt_full_plurality <- wa_dt_full %>%
   #     cbind(c(best_analogs_BPS, best_analogs_EVT, best_analogs_ESP)) %>%
@@ -396,7 +395,7 @@ setup_veg_prediction_bps <- function(input_csv, input_outline_sv, template_r = N
   #     distinct(f_x, f_y) %>%
   #     vect(geom = c("f_x", "f_y"), crs = "EPSG:4326")
 
-  BPS_actual_extracted <- terra::extract(BPS_local, focal_points, xy = FALSE, ID = FALSE) %>%
+  BPS_actual_extracted <- terra::extract(BPS, focal_points, xy = FALSE, ID = FALSE) %>%
     pull()
 
   # join to the CSV
@@ -406,7 +405,7 @@ setup_veg_prediction_bps <- function(input_csv, input_outline_sv, template_r = N
   BPS_actual_dt <- BPS_actual_dt[, BPS_actual := as.numeric(as.character(BPS_actual_extracted))]
   BPS_actual_dt <- BPS_csv[BPS_actual_dt, on = .(BPS_CODE = BPS_actual)][BPS_CODE > 31]
   # rename
-  BPS_actual_dt <- BPS_actual_dt[, .(BPS_name_actual = simplified_name, Forest_NonForest_actual = Forest_NonForest, f_x = x, f_y = y, BPS_CODE_actual = BPS_CODE)]
+  BPS_actual_dt <- BPS_actual_dt[, .(BPS_name_actual = simplified_name, Forest_NonForest_actual = Forest_NonForest, f_x = x, f_y = y)]
 
   # BPS_actual_dt <- focal_points %>%
   #     as.data.frame(geom = "XY") %>%
@@ -420,7 +419,7 @@ setup_veg_prediction_bps <- function(input_csv, input_outline_sv, template_r = N
   #     )
 
   # join to the analog dataframe
-  BPS_predicted_dt <- input_csv_w_analogs[, .(f_x, f_y, a_x, a_y, sigma, dist_km, BPS_CODE_predicted, BPS_name_predicted, Forest_NonForest_predicted)]
+  BPS_predicted_dt <- input_csv_w_analogs[, .(f_x, f_y, a_x, a_y, sigma, dist_km, BPS_name_predicted, Forest_NonForest_predicted)]
   rm(input_csv_w_analogs)
   gc()
   # rename to BPS_predicted
@@ -466,14 +465,6 @@ compute_accuracy_plurality_bps_wsigma <- function(input_dt) {
     accuracy_simplified_bps = accuracy_stats,
     accuracy_forest = accuracy_forest_plurality
   ))
-}
-
-calculate_min_ranks <- function(input_csv_full, vegarg1, vegarg2) {
-  # rank within focal points
-  input_csv_full <- input_csv_full[, rank := frank(sigma), by = .(f_x, f_y)]
-  top_ranks <- input_csv_full[, .(rank = sum(rank)), by = .(f_x, f_y, vegarg1, vegarg2), env = list(vegarg1 = vegarg1, vegarg2 = vegarg2)]
-  top_ranks <- top_ranks[top_ranks[, .I[which.min(rank)], by = .(f_x, f_y)]$V1]
-  return(top_ranks)
 }
 
 calculate_top_sigma <- function(input_csv_full, vegarg1, vegarg2) {
@@ -539,7 +530,7 @@ calculate_top_combined <- function(input_csv_full, vegarg1, vegarg2) {
   return(BPS_analog_scores)
 }
 compute_accuracy_combined_bps <- function(input_csv_full) {
-  BPS_analog_scores <- calculate_top_combined(input_csv_full, "BPS_name_predicted", "BPS_name_actual")
+  BPS_analog_scores <- calculated_top_combined(input_csv_full, "BPS_name_predicted", "BPS_name_actual")
   reserved <- BPS_analog_scores[, .(BPS_name_actual, BPS_name_predicted, score)][
     , score_BPS := score
   ][
@@ -548,7 +539,7 @@ compute_accuracy_combined_bps <- function(input_csv_full) {
   accuracy_stats <- build_accuracy_stats(BPS_analog_scores, "BPS_name_actual", "BPS_name_predicted")
   rm(BPS_analog_scores)
   gc()
-  BPS_analog_scores <- calculate_top_combined(input_csv_full, "Forest_NonForest_predicted", "Forest_NonForest_actual")
+  BPS_analog_scores <- calculated_top_combined(input_csv_full, "Forest_NonForest_predicted", "Forest_NonForest_actual")
   accuracy_forest_combined <- build_accuracy_stats(BPS_analog_scores, "Forest_NonForest_actual", "Forest_NonForest_predicted")
   BPS_analog_scores <- cbind(BPS_analog_scores, reserved)[, score_forest := score][, score := NULL]
   return(list(
@@ -584,20 +575,13 @@ create_reclass_cpal <- function(input_spatRast) {
   mapping <- read_csv("data/veg_data/mapping_palette.csv", show_col_types = FALSE)
   # create a reclassify matrix
   ## grab levels from linput_spatRast
-  categorical_df <- cats(input_spatRast) %>%
-    as.data.frame()
-  if (nrow(categorical_df) != 0) {
-    factor_df <- setNames(categorical_df, c("ID", "name"))
-    joined_df <- factor_df %>%
-      left_join(mapping, by = c("name" = "name"))
-  } else {
-    factor_df <- data.frame(ID = as.vector(unique(values(input_spatRast)))) %>%
-      drop_na()
-    joined_df <- factor_df %>%
-      left_join(mapping, by = c("ID" = "value")) %>%
-      mutate(value = ID)
-  }
+  factor_df <- cats(input_spatRast) %>%
+    as.data.frame() %>%
+    setNames(c("ID", "name"))
+
   ## join mapping to levels based on name
+  joined_df <- factor_df %>%
+    left_join(mapping, by = c("name" = "name"))
 
   # create reclassify matrix
   rcl <- matrix(c(joined_df$ID, joined_df$value), ncol = 2, byrow = FALSE)
