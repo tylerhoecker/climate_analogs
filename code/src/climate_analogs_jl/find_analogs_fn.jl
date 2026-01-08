@@ -116,6 +116,7 @@ function calculate_analogs_distributed(
 	max_dist::Union{AbstractFloat, Integer},
 	error_file::String)
 
+
 	result = ProgressMeter.@showprogress "Calculating Climate Analogs.." @distributed (vcat) for x in 1:size(focal_data_cov[1], 1)
 		try
 			result_i = calculate_analogs(
@@ -155,12 +156,14 @@ function find_analogs(
 	n_analog_use::Integer,
 	min_dist::Union{AbstractFloat, Integer},
 	max_dist::Union{AbstractFloat, Integer},
+	output_dir::String,
 	output_file::String)
 	# Map function over all points in supplied dataset
 	# write headers to CSV if csv does not exist
-    output_gzip= joinpath(output_file) * ".csv.gz"
+	output_name = joinpath(output_dir, output_file)
+    output_gzip= joinpath(output_name) * ".csv.gz"
 		#replace error file
-	error_file = joinpath("/project/umontana_climate_analogs/climate_analogs/data", basename(output_file) * "_error.txt")
+	error_file = joinpath(output_dir, output_file * "_error.txt")
 
 	open(error_file, "w") do f
 		write(f, "")

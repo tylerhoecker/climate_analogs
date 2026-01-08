@@ -4,21 +4,23 @@ library(terra)
 library(RColorBrewer)
 library(viridisLite)
 source("code/src/climate_analogs_R/veg_vote_fn.R")
-template_r <- rast("data/climate/topoterra_hist_1961-1990.tif", lyrs = "aet")
+template_r <- rast("data/climate/TopoTerra_1961-1990.tif", lyrs = "aet")
 row_cells <- ceiling(dim(template_r)[1] / 5)
 col_cells <- ceiling(dim(template_r)[2] / 4)
 tile_extents <- getTileExtents(template_r, c(row_cells, col_cells))
 
+##################
+# PROCESS FUTURE PROJECTIONS
+##################
 BPS <- rast("data/veg_data/LC20_BPS_220.tif")
 BPS <- crop(BPS, project(template_r, crs(BPS)))
 states <- c("washington", "oregon", "california", "idaho", "montana", "nevada", "utah", "wyoming", "colorado", "new_mexico", "arizona") %>%
     str_to_title()
 categorical_names <- c(
-    "BPS_name_predicted", "Forest_NonForest_predicted"
+    "BPS_name_predicted"
 )
 numerical_names <- c(
-    "sigma_score_BPS", "sigma_score_forest", "mean_sigma_all", "minimum_distance_predicted",
-    "BPS_CODE_predicted"
+    "sigma_score_BPS", "sigma_score_forest", "mean_sigma_all", "minimum_distance_predicted"
 )
 
 
@@ -32,6 +34,9 @@ for (file in input_files) {
         str_replace_all("_", " ") %>%
         str_to_title() %>%
         str_remove(" Tile\\d*$")
+    # tile_name <- basename(file) %>%
+    # str_extract("[0-9]+")
+    # local_name <- tile_name
     # check if the local_name matches states
     if (!(local_name %in% states)) {
         # if it does, grab the extent of the tile
@@ -44,18 +49,19 @@ for (file in input_files) {
             project("EPSG:4326")
     }
 
-    BPS_local <- crop(BPS, buffer(project(local_border, crs(BPS)), 500 * 1000))
+    BPS_local <- crop(BPS, terra::buffer(project(local_border, crs(BPS)), 500 * 1000))
     BPS_local <- project(BPS_local, template_r, method = "near", threads = TRUE)
 
-    # if (file.exists(paste0("data/reverse_analogs/outputs/cleaned_data/", tile_name, "_cleaned.csv.gz"))) {
-    #     cleaned_local <- fread(paste0("data/reverse_analogs/outputs/cleaned_data/", tile_name, "_cleaned.csv.gz"))
-    # } else {
-    local_data <- fread(file)
-    cleaned_local <- setup_veg_prediction_bps(local_data, local_border, template_r, BPS_local)
-    fwrite(cleaned_local, paste0("data/reverse_analogs/outputs/cleaned_data/", tile_name, "_cleaned.csv.gz"), compress = "gzip")
-    # }
+    if (file.exists(paste0("data/reverse_analogs/outputs/cleaned_data/", tile_name, "_cleaned.csv.gz"))) {
+        cleaned_local <- fread(paste0("data/reverse_analogs/outputs/cleaned_data/", tile_name, "_cleaned.csv.gz"))
+    } else {
+        local_data <- fread(file)
+        cleaned_local <- setup_veg_prediction_bps(local_data, local_border, template_r, BPS_local)
+        fwrite(cleaned_local, paste0("data/reverse_analogs/outputs/cleaned_data/", tile_name, "_cleaned.csv.gz"), compress = "gzip")
+    }
     gc()
     rm(local_data)
+    next
     # compute the predictions using the various methods
 
 
@@ -67,7 +73,7 @@ for (file in input_files) {
     local_sigma <- cbind(local_sigma_FN, reserve)[, sigma_score_forest := sigma_score][, sigma_score := NULL]
 
     # find the mean sigma score for all focal pixels
-    mean_sigma_all <- cleaned_local[, .(mean_sigma_all = mean(sigma)), by = .(f_x, f_y)]
+    mean_sigma_all <- cleaned_local[, .(mean_sigma_all = mean(sigma, na.rm = TRUE)), by = .(f_x, f_y)]
     # merge the mean sigma score to the local_sigma dataframe
     local_sigma <- local_sigma[mean_sigma_all, on = .(f_x, f_y)]
     rm(mean_sigma_all)
@@ -77,42 +83,30 @@ for (file in input_files) {
     filter_data <- local_sigma[, .(f_x, f_y, BPS_name_predicted)]
     ## filter by filter_data
     filtered_for_dist <- cleaned_local[filter_data, on = .(f_x, f_y, BPS_name_predicted)]
-    min_dist <- filtered_for_dist[, .(minimum_distance_predicted = min(dist_km)), by = .(f_x, f_y)]
+    min_dist <- filtered_for_dist[, .(minimum_distance_predicted = min(dist_km, na.rm = TRUE)), by = .(f_x, f_y)]
 
     local_sigma <- local_sigma[min_dist, on = .(f_x, f_y)]
 
     rm(filtered_for_dist, min_dist)
-    # find the predicted BPS code
-    best_BPS <- calculate_top_sigma(cleaned_local, "BPS_CODE_actual", "BPS_CODE_predicted")
-
-
-    # merge the best BPS to the local_sigma dataframe
-    local_sigma <- local_sigma[best_BPS, on = .(f_x, f_y)]
 
 
     # create rasters of predicted and observed vegetation using the sigma method
-    template_local <- crop(template_r, buffer(local_border, 500 * 1000))
+    template_local <- crop(template_r, local_border)
     local_df <- local_sigma
     local_sv <- vect(local_df, geom = c("f_x", "f_y"), crs = "EPSG:4326")
     gc()
     # list of fiels to rasterize
     fields <- c(
         "BPS_name_predicted", "Forest_NonForest_predicted", "sigma_score_BPS", "sigma_score_forest",
-        "mean_sigma_all", "minimum_distance_predicted",
-        "BPS_CODE_predicted"
+        "mean_sigma_all", "minimum_distance_predicted"
     )
     # rasterize the fields to the template raster over a loop
     temp_list <- list()
     forest_nonforest_colors <- data.frame(value = c(1, 2), color = c("darkgreen", "orange"))
     for (i in seq_along(fields)) {
         field <- fields[i]
-        if (field == "match_BPS" | field == "match_forested") {
-            temporary_rast <- local_sv %>%
-                rasterize(template_local, field, fun = "sum")
-            temporary_rast <- as.factor(temporary_rast)
-            temporary_rast <- categories(temporary_rast, value = data.frame(ID = c(0, 1), category = c("Incorrect", "Correct")))
-        } else if (str_detect(field, "BPS_CODE")) {
-            temporary_rast <- rasterize(local_sv, template_local, field)
+        if (str_detect(field, "BPS_CODE")) {
+            temporary_rast <- rasterize(local_sv, template_local, field, na.rm = TRUE)
         } else if (str_detect(field, "sigma|distance")) {
             temporary_rast <- rasterize(local_sv, template_local, field)
         } else {
@@ -134,8 +128,8 @@ for (file in input_files) {
     # write the stack to a file
     # split out the categorical and numeric rasters
     # write the rasters to the outputs folder
-    writeRaster(local_stack[[categorical_names]], paste0("data/reverse_analogs/outputs/rasters/", tile_name, "_reverse_analogs_categorical.tif"), overwrite = TRUE)
-    writeRaster(local_stack[[numerical_names]], paste0("data/reverse_analogs/outputs/rasters/", tile_name, "_reverse_analogs_numerical.tif"), overwrite = TRUE)
+    writeRaster(local_stack[[categorical_names]], paste0("data/reverse_analogs/outputs/rasters/t", tile_name, "_reverse_analogs_categorical.tif"), overwrite = TRUE)
+    writeRaster(local_stack[[numerical_names]], paste0("data/reverse_analogs/outputs/rasters/t", tile_name, "_reverse_analogs_numerical.tif"), overwrite = TRUE)
 
     rm(
         local_stack, temp_list, local_sv, local_df, cleaned_local, local_sigma, local_sigma_FN, local_sigma_BPS, reserve,
@@ -151,8 +145,7 @@ fields <- c(
     "BPS_name_predicted",
     "sigma_score_BPS",
     "mean_sigma_all",
-    "minimum_distance_predicted",
-    "BPS_CODE_predicted"
+    "minimum_distance_predicted"
 )
 
 rasters <- list.files("data/reverse_analogs/outputs/rasters", full.names = TRUE, pattern = ".tif$")
@@ -166,20 +159,20 @@ for (i in seq_along(fields)) {
     field <- fields[i]
     if (field %in% c("BPS_name_predicted", "BPS_name_actual")) {
         raster_collection[[i]] <- lapply(categorical_rasters, rast, lyrs = field) %>%
+            lapply(reclassify_cpal) %>%
             sprc() %>%
-            mosaic(fun = "max") %>%
-            terra::merge(burnin_mask, first = FALSE) %>%
-            reclassify_cpal()
+            terra::merge() %>%
+            terra::merge(burnin_mask, first = FALSE)
         names(raster_collection[[i]]) <- field
     } else if (str_detect(field, "BPS_CODE")) {
         raster_collection[[i]] <- lapply(numerical_rasters, rast, lyrs = field) %>%
             sprc() %>%
-            mosaic(fun = "max")
+            terra::merge()
         names(raster_collection[[i]]) <- field
     } else {
         raster_collection[[i]] <- lapply(numerical_rasters, rast, lyrs = field) %>%
             sprc() %>%
-            mosaic(fun = "max")
+            terra::merge()
         names(raster_collection[[i]]) <- field
     }
 }
