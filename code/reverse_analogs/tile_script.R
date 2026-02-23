@@ -1,3 +1,7 @@
+#####################
+# PRIMARY SCRIPT FOR CONTEMPORARY AND FUTURE REVERSE ANALOGS. PATHS AND INPUTS CHANGED AS NEEDED
+######################
+
 library(tidyverse)
 library(data.table)
 library(doParallel)
@@ -10,6 +14,7 @@ paste0("Number of processes: ", as.character(cpus_per_task))
 
 project_dir <- "INSERT/PATH"
 # project_dir = "/home/jeff/Github/ClimateAnalogues/climate_analogs"
+# Load in custom R functions
 source(file.path(project_dir, "code", "src", "climate_analogs_R", "climate_analogs.R"))
 
 
@@ -24,12 +29,14 @@ if (length(commandArgs(trailingOnly = TRUE)) == 0) {
     tile_id <- commandArgs(trailingOnly = TRUE)[1]
 }
 
-
+# Path to rds files for the tile
 annuals_future_path <- file.path(project_dir, "data", "reverse_analogs", "inputs", paste0("annuals_future_", tile_id, ".Rds"))
 normal_future_path <- file.path(project_dir, "data", "reverse_analogs", "inputs", paste0("normal_future_", tile_id, ".Rds"))
 analog_pool_path <- file.path(project_dir, "data", "reverse_analogs", "inputs", paste0("analog_pool_", tile_id, ".Rds"))
 annuals_future <- readRDS(annuals_future_path)
+# Grab historical focal cells
 normal_future <- readRDS(normal_future_path)
+# Analogs
 analog_pool <- readRDS(analog_pool_path)
 
 
@@ -44,8 +51,7 @@ message("loaded data")
 
 
 
-# This takes 4.5 hours to ~1.4m analogs across reverse_analogs points on 25 cores
-# calculate n_analog_use
+# Calculate n_analog_use which is the sample size to draw from the analog pool for each focal cell.
 proportion_landscape <- 0.05
 n_analog_pool <- round(((2 * max_dist) / 0.270)^2 * proportion_landscape, digits = 0) |> as.numeric()
 
@@ -57,15 +63,6 @@ tryCatch(
         message("starting analog calculation")
     }
 )
-
-# library(profvis)
-# start = time()
-# profvis({
-# test first 12
-
-#  for i in 1:size(annuals_future,1)
-#    annuals_future[i] = annuals_future[i][1:12, :]
-#  end
 
 analog_results <- find_analogs(
     annuals_future,

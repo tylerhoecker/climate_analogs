@@ -27,16 +27,13 @@ numerical_names <- c(
 
 
 input_files <- list.files("data/reverse_analogs/outputs", pattern = "\\.csv\\.gz", full.names = TRUE)
-input_files <- input_files[!str_detect(input_files, paste(str_to_lower(states), collapse = "|"))]
+# input_files <- input_files[!str_detect(input_files, paste(str_to_lower(states), collapse = "|"))]
 for (file in input_files) {
     tile_name <- str_extract(file, "(?<=outputs/reverse_analogs_)[^\\.]+") %>% str_to_lower()
     local_name <- str_extract(tile_name, "^[a-z0-9]+(?:_[a-z0-9]+)*") %>%
         str_replace_all("_", " ") %>%
         str_to_title() %>%
         str_remove(" Tile\\d*$")
-    # tile_name <- basename(file) %>%
-    # str_extract("[0-9]+")
-    # local_name <- tile_name
     # check if the local_name matches states
     if (!(local_name %in% states)) {
         # if it does, grab the extent of the tile
@@ -49,9 +46,11 @@ for (file in input_files) {
             project("EPSG:4326")
     }
 
+    # crop the BPS to the local border with a 500km buffer and project to the template raster
     BPS_local <- crop(BPS, terra::buffer(project(local_border, crs(BPS)), 500 * 1000))
     BPS_local <- project(BPS_local, template_r, method = "near", threads = TRUE)
 
+    # clean outputs of climate analogs for the tile
     if (file.exists(paste0("data/reverse_analogs/outputs/cleaned_data/", tile_name, "_cleaned.csv.gz"))) {
         cleaned_local <- fread(paste0("data/reverse_analogs/outputs/cleaned_data/", tile_name, "_cleaned.csv.gz"))
     } else {
@@ -61,10 +60,10 @@ for (file in input_files) {
     }
     gc()
     rm(local_data)
-    next
     # compute the predictions using the various methods
 
 
+    # calculate the climate-weighted vote winner for the BPS and Forest_NonForest predictions
     local_sigma_BPS <- calculate_top_sigma(cleaned_local, "BPS_name_actual", "BPS_name_predicted")
     local_sigma_FN <- calculate_top_sigma(cleaned_local, "Forest_NonForest_actual", "Forest_NonForest_predicted")
     reserve <- local_sigma_BPS[, .(BPS_name_actual, BPS_name_predicted, sigma_score)][, sigma_score_BPS := sigma_score][, sigma_score := NULL]
@@ -90,7 +89,7 @@ for (file in input_files) {
     rm(filtered_for_dist, min_dist)
 
 
-    # create rasters of predicted and observed vegetation using the sigma method
+    # create rasters of predicted and observed vegetation using the climate-weighted method
     template_local <- crop(template_r, local_border)
     local_df <- local_sigma
     local_sv <- vect(local_df, geom = c("f_x", "f_y"), crs = "EPSG:4326")
@@ -137,6 +136,7 @@ for (file in input_files) {
     )
     gc()
 }
+# burn in water, barren, etc. using the burnin mask and merge rasters together
 # read in all rasters as collection
 burnin_mask <- rast("data/veg_data/BPS_burnin_mask.tif")
 
@@ -149,12 +149,13 @@ fields <- c(
 )
 
 rasters <- list.files("data/reverse_analogs/outputs/rasters", full.names = TRUE, pattern = ".tif$")
-rasters <- rasters[!str_detect(rasters, paste(str_to_lower(states), collapse = "|"))]
+# rasters <- rasters[!str_detect(rasters, paste(str_to_lower(states), collapse = "|"))]
 rasters <- rasters[!str_detect(rasters, paste0(fields, collapse = "|"))]
 rasters <- rasters[str_detect(rasters, "[0-9]")]
 categorical_rasters <- rasters[str_detect(rasters, "categorical")]
 numerical_rasters <- rasters[str_detect(rasters, "numerical")]
 raster_collection <- vector(length = length(fields), mode = "list")
+# loop through fields and merge rasters together. reclassify categorical rasters as needed and burn in the burnin mask
 for (i in seq_along(fields)) {
     field <- fields[i]
     if (field %in% c("BPS_name_predicted", "BPS_name_actual")) {

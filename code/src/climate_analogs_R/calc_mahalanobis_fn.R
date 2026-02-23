@@ -8,6 +8,7 @@ library(dplyr)
 source("code/src/climate_analogs_R/calc_sigma_fn.R")
 source("code/src/climate_analogs_R/geography_fns.R")
 
+# This function calculates the Mahalanobis distance and sigma dissimilarity for a given point in the focal dataset to a sample of the analog pool, and returns a data.table
 calc_mahalanobis <- function(
     pt_i,
     focal_data_cov,
@@ -37,9 +38,6 @@ calc_mahalanobis <- function(
             dplyr::summarise(across(all_of(var_names), mean)) |>
             unlist()
     }
-
-
-
 
     # Build reference matrix from random sample of historical normals
     analog_mat <- input_sample[, var_names, env = list(var_names = as.list(var_names))] |>

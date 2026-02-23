@@ -53,6 +53,7 @@ end
 
 
 
+# path to rds files for the tile
 annuals_future_path = joinpath(project_dir, "data", "reverse_analogs", "inputs", "annuals_future_$(tile_id).Rds")
 normal_future_path = joinpath(project_dir, "data", "reverse_analogs", "inputs", "normal_future_$(tile_id).Rds")
 analog_pool_path = joinpath(project_dir, "data", "reverse_analogs", "inputs", "analog_pool_$(tile_id).Rds")
@@ -89,7 +90,7 @@ catch e
 end
 
 
-#covert data types to lightest possible
+#covert data types to lightest reasonable
 for i in 1:length(annuals_future)
   ## convert x and y to float16
   annuals_future[i][!, :x] = Float32.(annuals_future[i][!, :x])
@@ -103,16 +104,14 @@ end;
 
 
 
-#covert data types to lightest possible
+#covert data types to lightest reasonable
 normal_future[!, :x] = Float32.(normal_future[!, :x]);
 normal_future[!, :y] = Float32.(normal_future[!, :y]);
 ## convert all other columns to INT16 after rounding
 normal_future[!, Not(:x, :y)] = Int16.(round.(normal_future[!, Not(:x, :y)], digits=0));
 
 
-
-
-
+# covert data types to lightest reasonable
 analog_pool[!, :x] = Float32.(analog_pool[!, :x]);
 analog_pool[!, :y] = Float32.(analog_pool[!, :y]);
 analog_pool[!, Not(:x, :y)] = Int16.(round.(analog_pool[!, Not(:x, :y)], digits=0));
@@ -120,30 +119,18 @@ analog_pool[!, Not(:x, :y)] = Int16.(round.(analog_pool[!, Not(:x, :y)], digits=
 
 
 # This takes 4.5 hours to ~1.4m analogs across reverse_analogs points on 25 cores
-# calculate n_analog_use
+# calculate n_analog_use which is the sample size to draw from the analog pool for each focal cell.
 proportion_landscape = 0.05
 n_analog_pool::Int32 = round(((2 * max_dist) / 0.270)^2 * proportion_landscape, digits=0) |> Integer
 
 try
-
   alert("starting analogs tile $(tile_id)")
-
-
 catch e
-
   println("starting analog calculation")
-
 end
 
-# library(profvis)
-#start = time()
-# profvis({
-# test first 12
 
-#  for i in 1:size(annuals_future,1)
-#    annuals_future[i] = annuals_future[i][1:12, :]
-#  end
-
+# on a sample of 1.4 million analogs this takes 4.5 hours on 25 cores
 analog_results = ClimateAnalogs.find_analogs(annuals_future,
   normal_future,
   analog_pool,

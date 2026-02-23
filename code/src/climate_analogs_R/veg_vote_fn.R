@@ -47,7 +47,7 @@ setup_veg_prediction_bps <- function(input_csv, input_outline_sv, template_r = N
     }
   }
   activeCat(BPS) <- "BPS_CODE"
-  # extract BPS and EVT to analogs
+  # extract the BPS for all chosen analogs at one time
   BPS_analogs <- terra::extract(BPS, analogs_v,
     na.rm = TRUE,
     xy = FALSE
@@ -62,17 +62,19 @@ setup_veg_prediction_bps <- function(input_csv, input_outline_sv, template_r = N
   rm(input_csv)
   gc()
 
-  # adjust vegetation names to simplify the datasets --------
+  # use BPS_CODE to join to our simpler vegetation groups
   mapping_categorical <- fread("data/veg_data/mapping_categorical_v5.csv")[, .(BPS_CODE, Cluster_name)]
   mapping_categorical <- unique(mapping_categorical, by = "BPS_CODE")
   # rename cluster name to simplified name
   mapping_categorical <- mapping_categorical[, simplified_name := Cluster_name][, Cluster_name := NULL]
-  # select(BPS_CODE, final_id, Cluster_name)
+
   BPS_csv <- fread("data/veg_data/LF20_BPS_220.csv")[, ":="(
     Forest_NonForest = map_chr(BPS_NAME, forest_nonforest))][
     , .(BPS_CODE, Forest_NonForest)
   ]
   BPS_csv <- unique(mapping_categorical[BPS_csv, on = .(BPS_CODE)], by = "BPS_CODE")
+
+  # essentially equivalent to
   # mutate(
   #     Simplified_BPS_Name = map_chr(BPS_NAME, simplify_lf_names),
   #     Forest_NonForest = map_chr(BPS_NAME, forest_nonforest)
@@ -82,7 +84,7 @@ setup_veg_prediction_bps <- function(input_csv, input_outline_sv, template_r = N
   #     left_join(mapping_categorical, by = c("BPS_CODE" = "BPS_CODE")) %>%
   #     distinct(BPS_CODE, .keep_all = TRUE)
 
-  # plurality votes for each -------
+  # join the BPS csv with our analog dataset to get the simple names of analogs (predictions)
   best_analogs_BPS <- join_fn_BPS(input_csv_full, BPS_csv)
   # join the plurality votes to the full dataframe
   input_csv_w_analogs <- cbind(input_csv_full, best_analogs_BPS)[, -c("BPS_CODE")]
@@ -93,6 +95,7 @@ setup_veg_prediction_bps <- function(input_csv, input_outline_sv, template_r = N
   # wa_dt_full_plurality <- wa_dt_full %>%
   #     cbind(c(best_analogs_BPS, best_analogs_EVT, best_analogs_ESP)) %>%
   #     select(-BPS_CODE, -EVT_NAME, -ESP_NAME)
+
 
   # Compute actual BPS
   ## take all focal points and extract the BPS code
@@ -106,7 +109,7 @@ setup_veg_prediction_bps <- function(input_csv, input_outline_sv, template_r = N
   BPS_actual_extracted <- terra::extract(BPS, focal_points, xy = FALSE, ID = FALSE) %>%
     pull()
 
-  # join to the CSV
+  # join to the BPS CSV
   BPS_actual_dt <- focal_points %>%
     as.data.frame(geom = "XY") %>%
     as.data.table()
@@ -126,7 +129,7 @@ setup_veg_prediction_bps <- function(input_csv, input_outline_sv, template_r = N
   #         f_y = y
   #     )
 
-  # join to the analog dataframe
+  # join to the analog dataframe to get all focal pixels, their actual BPS, and the prediction of each analog
   BPS_predicted_dt <- input_csv_w_analogs[, .(f_x, f_y, a_x, a_y, sigma, dist_km, BPS_name_predicted, Forest_NonForest_predicted)]
   rm(input_csv_w_analogs)
   gc()
@@ -141,6 +144,7 @@ setup_veg_prediction_bps <- function(input_csv, input_outline_sv, template_r = N
 }
 
 
+# function to convert detailed vegetation groups to forest/non-forest
 forest_nonforest <- function(group_veg) {
   group_veg <- str_to_lower(group_veg)
   case_when(
@@ -224,6 +228,7 @@ create_reclass_cpal <- function(input_spatRast) {
 
   return(list(rcl = rcl, cpal = cpal, labels = labels))
 }
+
 # function that reclassifies and sets color palette for a single layer input_spatRast based on mapping file
 reclassify_cpal <- function(input_spatRast) {
   # create reclassify matrix and color palette
@@ -243,7 +248,7 @@ reclassify_cpal <- function(input_spatRast) {
 
 
 # voting functions
-
+# calculate the most common prediction
 calculate_top_vote <- function(input_dt, input_column, vote_column) {
   top_vote <- input_dt[, .(f_x, f_y, input_column), env = list(input_column = input_column)][
     , .(count = .N),
@@ -265,6 +270,7 @@ calculate_top_vote <- function(input_dt, input_column, vote_column) {
   return(combined_dt)
 }
 
+# calculate the most common prediction, using sigma as a tiebreaker
 calculate_top_vote_wsigma <- function(input_dt, input_column, vote_column) {
   top_vote <- input_dt[, .(f_x, f_y, input_column, sigma), env = list(input_column = input_column)][
     # rescale sigma
@@ -294,10 +300,7 @@ vote_filter_fn <- function(input_dt, dataset_in, count_column, vote_column) {
 }
 
 
-# ------------------------------------------------------------------------------------------------
-# validation stats
-# kappa validation
-# build confusion matrix
+# validation stats (kappa, accuracy)
 build_accuracy_stats <- function(input_dt, actual_column, predicted_column) {
   levels <- unique(c(input_dt[[actual_column]], input_dt[[predicted_column]]))
   input_dt[[actual_column]] <- factor(input_dt[[actual_column]], levels = levels)
@@ -310,6 +313,7 @@ build_accuracy_stats <- function(input_dt, actual_column, predicted_column) {
   return(output)
 }
 
+# build confusion matrix with an additional class column for grouping
 build_accuracy_stats_wclass <- function(input_dt, actual_column, predicted_column, class_col) {
   classes <- unique(input_dt[[class_col]])
   length_classes <- length(classes)
@@ -337,8 +341,7 @@ build_accuracy_stats_wclass <- function(input_dt, actual_column, predicted_colum
   return(output_list)
 }
 
-
-
+# compute accuracy stats for plurality voting
 compute_accuracy_plurality_bps <- function(input_dt) {
   combined_dt <- calculate_top_vote(input_dt, "BPS_name_predicted", "BPS_vote")
   reserved <- combined_dt[, .(BPS_name_actual, BPS_name_predicted, BPS_vote)]
@@ -357,6 +360,7 @@ compute_accuracy_plurality_bps <- function(input_dt) {
   ))
 }
 
+# compute accuracy stats for plurality voting with sigma as a tiebreaker
 compute_accuracy_plurality_bps_wsigma <- function(input_dt) {
   combined_dt <- calculate_top_vote_wsigma(input_dt, "BPS_name_predicted", "BPS_vote")
   reserved <- combined_dt[, .(BPS_name_actual, BPS_name_predicted, BPS_vote)]
@@ -374,6 +378,7 @@ compute_accuracy_plurality_bps_wsigma <- function(input_dt) {
   ))
 }
 
+# calculate the climate-weighted vote winner for the BPS and Forest_NonForest predictions
 calculate_top_sigma <- function(input_csv_full, vegarg1, vegarg2) {
   rescaled_input_csv_full <- input_csv_full[, sigma_rescaled := 1 - (sigma - min(sigma, na.rm = TRUE)) / (max(sigma, na.rm = TRUE) - min(sigma, na.rm = TRUE))]
   top_sigma <- rescaled_input_csv_full[, .(sigma_score = sum(sigma_rescaled, na.rm = TRUE)), by = .(f_x, f_y, vegarg1, vegarg2), env = list(vegarg1 = vegarg1, vegarg2 = vegarg2)]
@@ -381,6 +386,7 @@ calculate_top_sigma <- function(input_csv_full, vegarg1, vegarg2) {
   return(top_sigma)
 }
 
+# compute accuracy stats for climate-weighted voting
 compute_accuracy_sigma_bps <- function(input_csv_full) {
   BPS_analog_scores <- calculate_top_sigma(input_csv_full, "BPS_name_predicted", "BPS_name_actual")
   reserved <- BPS_analog_scores[, .(BPS_name_actual, BPS_name_predicted, sigma_score)][
@@ -402,12 +408,14 @@ compute_accuracy_sigma_bps <- function(input_csv_full) {
   ))
 }
 
+# calculate the distance-weighted vote winner for the BPS and Forest_NonForest predictions
 calculate_top_distance <- function(input_csv_full, vegarg1, vegarg2) {
   rescaled_input_csv_full <- input_csv_full[, dist_rescaled := 1 - (dist_km - min(dist_km)) / (max(dist_km) - min(dist_km))]
   top_distance <- rescaled_input_csv_full[, .(dist = sum(dist_rescaled)), by = .(f_x, f_y, vegarg1, vegarg2), env = list(vegarg1 = vegarg1, vegarg2 = vegarg2)]
   top_distance <- top_distance[top_distance[, .I[which.max(dist)], by = .(f_x, f_y)]$V1]
   return(top_distance)
 }
+# compute accuracy stats for distance-weighted voting
 compute_accuracy_distance_bps <- function(input_csv_full) {
   BPS_analog_scores <- calculate_top_distance(input_csv_full, "BPS_name_predicted", "BPS_name_actual")
   reserved <- BPS_analog_scores[, .(BPS_name_actual, BPS_name_predicted, dist)][
@@ -429,6 +437,7 @@ compute_accuracy_distance_bps <- function(input_csv_full) {
   ))
 }
 
+# calculate the combined sigma and distance weighted vote winner for the BPS and Forest_NonForest predictions
 calculate_top_combined <- function(input_csv_full, vegarg1, vegarg2) {
   rescaled_input_csv_full <- input_csv_full[, sigma_rescaled := 1 - (sigma - min(sigma)) / (max(sigma) - min(sigma))]
   rescaled_input_csv_full <- rescaled_input_csv_full[, dist_rescaled := 1 - (dist_km - min(dist_km)) / (max(dist_km) - min(dist_km))]
@@ -436,6 +445,7 @@ calculate_top_combined <- function(input_csv_full, vegarg1, vegarg2) {
   BPS_analog_scores <- BPS_analog_scores[BPS_analog_scores[, .I[which.max(score)], by = .(f_x, f_y)]$V1]
   return(BPS_analog_scores)
 }
+# compute accuracy stats for combined sigma and distance weighted voting
 compute_accuracy_combined_bps <- function(input_csv_full) {
   BPS_analog_scores <- compute_accuracy_plurality_bps(input_csv_full, "BPS_name_predicted", "BPS_name_actual")
   reserved <- BPS_analog_scores[, .(BPS_name_actual, BPS_name_predicted, score)][
@@ -457,6 +467,7 @@ compute_accuracy_combined_bps <- function(input_csv_full) {
   ))
 }
 
+# function to build a table of accuracy stats for each method
 build_accuracy_tables <- function(input_list) {
   final_table <- purrr::map_dfr(input_list, \(dataset){
     method <- dataset$method

@@ -43,6 +43,7 @@ if (length(args) == 0) {
 }
 
 
+# build simple template rasters for cropping and masking
 local_ext <- ext(extents[as.numeric(tile_id), ]) %>%
   vect(crs = crs(template))
 classify_mat <- matrix(c(NA, NA), ncol = 2)
@@ -52,14 +53,12 @@ template_buffer <- classify(template_analog, classify_mat, others = 1) %>%
   mask(buffer(local_ext, 500 * 1000))
 
 total_cells <- global(template_binary, "sum", na.rm = T) |> as.integer()
-sample_size <- round(1 * total_cells)
 
 
 template_sample <- template_binary
 
 
-# check that sum of template_sample = sample_size
-global(template_sample, "sum", na.rm = TRUE) |> as.integer() == sample_size
+# get climate normals, clip and mask to the template, and convert to data.table. this is the same for both contemporary and reverse analogs, so we can save it for convenience
 years <- 1985:2015
 ann_fut <- paste0(climate_dir, "/topoterra_2C_", years, ".tif") |>
   map(\(x) {
@@ -72,9 +71,9 @@ for (i in seq_along(ann_fut)) {
   ann_fut[[i]] <- T
   gc()
 }
-# # # This is slow, save for convenience for now
 
 
+# get the future normal, clip and mask to the template, and convert to data.table
 normal_future <- list.files(
   climate_dir, "topoterra_2C_1985-2015.tif",
   full.names = TRUE
@@ -84,6 +83,7 @@ normal_future <- list.files(
   as.data.table(xy = TRUE) |>
   na.omit()
 
+# get the analog pool normal, clip and mask to the template, and convert to data.table
 analog_pool <- list.files(
   climate_dir, "topoterra_hist_1985-2015.tif",
   full.names = TRUE
@@ -92,14 +92,18 @@ analog_pool <- list.files(
   "*"(., template_buffer) %>%
   as.data.table(xy = TRUE) |>
   na.omit()
+# save the datasets to the inputs folder for the tile
 saveRDS(analog_pool, file.path(getwd(), paste0("data/reverse_analogs/inputs/analog_pool_", tile_id, ".Rds")))
-# verify that x and y coordinates of normal_future and annuals_future are the same
+
+# verify that x and y coordinates of normal_future and annuals_future are exactly lined up
 # map it to all annual contemporary
 match_check <- map_lgl(annuals_future, \(x) {
   future_i <- x[, c("x", "y")]
   normal_future_i <- normal_future[, c("x", "y")]
   all.equal(future_i, normal_future_i)
 }) |> sum() / length(annuals_future)
+
+# if the coordinates match, save the datasets to the inputs folder for the tile. if not, print a message and do not save the datasets
 if (match_check == 1) {
   print("All x and y coordinates match")
   saveRDS(
