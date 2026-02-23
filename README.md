@@ -35,4 +35,4 @@ This repository contains dual implementations (R and Julia) for identifying clim
 
 ## File Structure
 
- ![File Structure](file_structure.svg)
+\[File Structure\](file_st

@@ -13,28 +13,28 @@ println("Number of processes: " * string(nprocs()))
 @everywhere project_dir = "/project/umontana_climate_analogs/climate_analogs"
 # project_dir = "/home/jeff/Github/ClimateAnalogues/climate_analogs"
 @everywhere begin
-	using Pkg
-	Pkg.activate(project_dir)
-	Pkg.instantiate()
-	Pkg.precompile()
+  using Pkg
+  Pkg.activate(project_dir)
+  Pkg.instantiate()
+  Pkg.precompile()
 end
 
 
 @everywhere begin
-	using DataFrames
-	using DataFramesMeta
-	using ProgressMeter
-	using Suppressor
-	using Distributions
-	using Distances
-	using Random
-	using CSV
-	using Statistics
-	using StatsBase
-	using LinearAlgebra
-	using ThreadPools: @bthreads
-	#load in custom Julia functions
-	include(joinpath(project_dir, "code", "src", "climate_analogs_jl", "climate_analogs.jl"))
+  using DataFrames
+  using DataFramesMeta
+  using ProgressMeter
+  using Suppressor
+  using Distributions
+  using Distances
+  using Random
+  using CSV
+  using Statistics
+  using StatsBase
+  using LinearAlgebra
+  using ThreadPools: @bthreads
+  #load in custom Julia functions
+  include(joinpath(project_dir, "code", "src", "climate_analogs_jl", "climate_analogs.jl"))
 end
 
 
@@ -44,11 +44,11 @@ using Alert
 
 max_dist = 500
 if length(ARGS) == 0
-	error("Stopping: Args must be supplied")
+  error("Stopping: Args must be supplied")
 elseif length(ARGS) > 1
-	error("Stopping: Only 1 arg can be supplied")
+  error("Stopping: Only 1 arg can be supplied")
 else
-	tile_id = ARGS[1]
+  tile_id = ARGS[1]
 end
 
 
@@ -79,23 +79,23 @@ analog_pool = rcopy(R"readRDS(analog_pool_path)");
 
 try
 
-	alert("datasets for tile $(tile_id) loaded")
+  alert("datasets for tile $(tile_id) loaded")
 
 
 catch e
 
-	println("loaded data")
+  println("loaded data")
 
 end
 
 
 #covert data types to lightest possible
 for i in 1:length(annuals_future)
-	## convert x and y to float16
-	annuals_future[i][!, :x] = Float32.(annuals_future[i][!, :x])
-	annuals_future[i][!, :y] = Float32.(annuals_future[i][!, :y])
-	## convert all other columns to INT16
-	annuals_future[i][!, Not(:x, :y)] = Int16.(annuals_future[i][!, Not(:x, :y)])
+  ## convert x and y to float16
+  annuals_future[i][!, :x] = Float32.(annuals_future[i][!, :x])
+  annuals_future[i][!, :y] = Float32.(annuals_future[i][!, :y])
+  ## convert all other columns to INT16
+  annuals_future[i][!, Not(:x, :y)] = Int16.(annuals_future[i][!, Not(:x, :y)])
 end;
 
 
@@ -107,7 +107,7 @@ end;
 normal_future[!, :x] = Float32.(normal_future[!, :x]);
 normal_future[!, :y] = Float32.(normal_future[!, :y]);
 ## convert all other columns to INT16 after rounding
-normal_future[!, Not(:x, :y)] = Int16.(round.(normal_future[!, Not(:x, :y)], digits = 0));
+normal_future[!, Not(:x, :y)] = Int16.(round.(normal_future[!, Not(:x, :y)], digits=0));
 
 
 
@@ -115,23 +115,23 @@ normal_future[!, Not(:x, :y)] = Int16.(round.(normal_future[!, Not(:x, :y)], dig
 
 analog_pool[!, :x] = Float32.(analog_pool[!, :x]);
 analog_pool[!, :y] = Float32.(analog_pool[!, :y]);
-analog_pool[!, Not(:x, :y)] = Int16.(round.(analog_pool[!, Not(:x, :y)], digits = 0));
+analog_pool[!, Not(:x, :y)] = Int16.(round.(analog_pool[!, Not(:x, :y)], digits=0));
 
 
 
 # This takes 4.5 hours to ~1.4m analogs across reverse_analogs points on 25 cores
 # calculate n_analog_use
 proportion_landscape = 0.05
-n_analog_pool::Int32 = round(((2 * max_dist) / 0.270)^2 * proportion_landscape, digits = 0) |> Integer
+n_analog_pool::Int32 = round(((2 * max_dist) / 0.270)^2 * proportion_landscape, digits=0) |> Integer
 
 try
 
-	alert("starting analogs tile $(tile_id)")
+  alert("starting analogs tile $(tile_id)")
 
 
 catch e
 
-	println("starting analog calculation")
+  println("starting analog calculation")
 
 end
 
@@ -145,14 +145,14 @@ end
 #  end
 
 analog_results = ClimateAnalogs.find_analogs(annuals_future,
-	normal_future,
-	analog_pool,
-	["aet", "def", "tmax", "tmin"],
-	n_analog_pool,# number of analog pixels to sample
-	100, # number of analogs to keep
-	0, # In KM! 
-	max_dist, # In KM!
-	(project_dir * "/data/reverse_analogs/outputs/reverse_analogs_$(tile_id)"));
+  normal_future,
+  analog_pool,
+  ["aet", "def", "tmax", "tmin"],
+  n_analog_pool,# number of analog pixels to sample
+  100, # number of analogs to keep
+  0, # In KM!
+  max_dist, # In KM!
+  (project_dir * "/data/reverse_analogs/outputs"),
+  "reverse_analogs_$(tile)");
 
 alert("analog results tile $(tile_id) complete")
-
