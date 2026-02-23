@@ -39,7 +39,7 @@ calc_mahalanobis <- function(
             unlist()
     }
 
-    # Build reference matrix from random sample of historical normals
+    # Build reference matrix from random sample of contemporary normals
     analog_mat <- input_sample[, var_names, env = list(var_names = as.list(var_names))] |>
         as.matrix()
 

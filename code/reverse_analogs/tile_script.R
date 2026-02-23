@@ -34,7 +34,7 @@ annuals_future_path <- file.path(project_dir, "data", "reverse_analogs", "inputs
 normal_future_path <- file.path(project_dir, "data", "reverse_analogs", "inputs", paste0("normal_future_", tile_id, ".Rds"))
 analog_pool_path <- file.path(project_dir, "data", "reverse_analogs", "inputs", paste0("analog_pool_", tile_id, ".Rds"))
 annuals_future <- readRDS(annuals_future_path)
-# Grab historical focal cells
+# Grab future focal normals
 normal_future <- readRDS(normal_future_path)
 # Analogs
 analog_pool <- readRDS(analog_pool_path)

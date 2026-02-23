@@ -67,7 +67,7 @@ annuals_future = rcopy(R"readRDS(annuals_future_path)");
 
 
 
-# grab historical focal cells
+# grab future focal normals
 normal_future = rcopy(R"readRDS(normal_future_path)");
 
 

@@ -1,7 +1,7 @@
 #' @description Wrapper function for a given dataframe of focal locations and climate data
 #' @param focal_data_cov Repeated observations from focal locations (ie, annualized futures) to calculate covariance matrix
 #' @param focal_data_mean Mean of repeated observations from focal locations (not required, usually calculated from focal_data_cov)
-#' @param analog_data Mean observations from potential analogs (ie historical means from across West)
+#' @param analog_data Mean observations from potential analogs (ie contemporary means from across West)
 #' @param var_names Climate variable names; expected to be names for columns in data.tables
 #' @param n_analog_pool Size of global analog pool, sampled randomly from extent of analog_data
 #' @param n_analog_use Number of good analogs to keep

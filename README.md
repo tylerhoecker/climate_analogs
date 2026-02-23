@@ -26,7 +26,7 @@ This repository contains dual implementations (R and Julia) for identifying clim
 
 
 1. **Calculates climate dissimilarity** from a focal location and its future climate to the contemporary climate mean of surrounding analog candidates using Mahalanobis distance (MD) transformed to sigma (σ) values
-2. **Identifies the best analogs** from a historical climate pool
+2. **Identifies the best analogs** from a contemporary climate pool
 3. **Predicts future impacts** (e.g., vegetation shifts) by extracting vegetation at analog locations
 
 ## Project Workflow
@@ -46,7 +46,7 @@ This repository contains dual implementations (R and Julia) for identifying clim
 ### Climate Data Variables
 - **`focal_data_cov`** - Stack of future climate data (annual observations) used to calculate covariance matrix for each focal location. Right now this should be a list/vector of dataframes.
 - **`focal_data_mean`** - Future climate normals at focal locations as a dataframe
-- **`analog_data`/`analog_pool`** - Historical climate normals at focal locations as a dataframe
+- **`analog_data`/`analog_pool`** - Contemporary climate normals at focal locations as a dataframe
 - **`var_names`** - Climate variable names (e.g., tmax, tmin)
 
 ### Spatial Variables
