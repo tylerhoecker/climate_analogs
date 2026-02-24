@@ -160,14 +160,13 @@ This repository contains dual implementations (R and Julia) for identifying clim
 
 ## Usage example
 
-`code/reverse_analogs/tile_script.jl` (or .R)is where primary analysis occured 
-(input data and output variables were changed as needed for future analog predictions and 
-contemporary analog predictions. This is a script (ie you need to run `julia tile_script.jl tile_id` in a terminal)
- that takes a tile_id as input. 
+`code/reverse_analogs/tile_script.jl` (or .R) is where primary analysis occured 
+(variables were changed as needed for future and 
+contemporary analog predictions). This is currently a script that takes a tile_id as input. 
  Please refer to the [Julia CLI manual](https://docs.julialang.org/en/v1/manual/command-line-interface/#cli) 
  or the [RScript manual](https://linux.die.net/man/1/rscript) for other flags, such as setting the 
  number of cores and threads for analysis. It is easy to edit these scripts to run interactively, simply replace any call
- of `ARGS` or `commandArgs()` with the tile number. Within the tile script, it uses that tile ID and hard coded paths 
+ of `ARGS` or `commandArgs()` with the tile number or name of your input identifier. Within the tile script, it uses that tile ID and hard coded paths 
  to obtain rds files created by `code/reverse_analogs/create_wna_pool_reverse_tiles.R`.
  Those rds files are then slightly prepped, and other variables such as the proportion of the landscape to sample, 
  the maximum distance to sample analogs, among others, can be set. 
