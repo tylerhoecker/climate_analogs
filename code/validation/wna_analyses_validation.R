@@ -3,12 +3,16 @@ library(rlang)
 library(terra)
 library(RColorBrewer)
 library(viridisLite)
+library(svglite)
 source("code/src/climate_analogs_R/veg_vote_fn.R")
-template_r <- rast("data/climate/topoterra_hist_1961-1990.tif", lyrs = "aet")
+template_r <- rast("data/climate/TopoTerra_1961-1990.tif", lyrs = "aet")
 row_cells <- ceiling(dim(template_r)[1] / 5)
 col_cells <- ceiling(dim(template_r)[2] / 4)
 tile_extents <- getTileExtents(template_r, c(row_cells, col_cells))
 
+#################
+# CONTEMPORARY PROJECTIONS
+#################
 BPS <- rast("data/veg_data/LC20_BPS_220.tif")
 BPS <- crop(BPS, project(template_r, crs(BPS)))
 states <- c("washington", "oregon", "california", "idaho", "montana", "nevada", "utah", "wyoming", "colorado", "new_mexico", "arizona") %>%
@@ -166,17 +170,66 @@ for (i in seq_along(fields)) {
     writeRaster(raster_collection[[i]], paste0("data/validation/outputs/rasters/", field, "_validation.tif"), overwrite = TRUE)
 }
 
-washington <- fread("data/validation/validation_washington.csv.gz")
+#####################
+# VALIDATION FOR EXCLUSION RADII
+######################
 
-washington_border <- vect("data/western_states/western_states.shp") |>
-    subset(NAME == "Washington", NSE = TRUE) |>
-    project("EPSG:4326")
-template_r <- rast("data/climate/topoterra_hist_1961-1990.tif", lyrs = 1)
+labels <- c(
+    "0 km" = "0km",
+    "25 km" = "25km"
+)
+
+template_r <- rast("data/climate/TopoTerra_1961-1990.tif", lyrs = 1)
 BPS <- rast("data/veg_data/LC20_BPS_220.tif")
 BPS <- crop(BPS, project(template_r, crs(BPS)))
 BPS <- project(BPS, crs(template_r), method = "near", threads = TRUE)
 BPS <- resample(BPS, template_r, method = "near", threads = TRUE)
 
+for (label in labels) {
+    text <- names(label)
+    strl <- label[1]
+    files <- list.files("data/validation/outputs", pattern = paste0(strl, ".*\\.csv\\.gz$"), full.names = TRUE)
+    # read in and combine all the files
+    analogs <- map(files, fread) %>%
+        bind_rows()
+    cleaned_analogs <- setup_veg_prediction_bps(analogs, vect(ext(template_r), crs = crs(template_r)), template_r, BPS)
+    fwrite(cleaned_analogs, paste0("data/validation/outputs/analogs_cleaned_", strl, ".csv.gz"), compress = "gzip")
+}
+clean_list <- map(labels, \(label) {
+    strl <- label[1]
+    fread(paste0("data/validation/outputs/analogs_cleaned_", strl, ".csv.gz"))
+})
+# bind rows with exclusion radius, then build plots
+combined <- bind_rows(
+    clean_list[[1]] %>% mutate(exclusion = "0 km"),
+    clean_list[[2]] %>% mutate(exclusion = "25 km")
+) %>%
+    tibble()
+saveRDS(combined, "data/validation/outputs/combined_validation_analogs.rds")
+
+
+histogram_distance <- ggplot(combined) +
+    geom_histogram(aes(x = dist_km, fill = exclusion, y = after_stat(count / sum(count))), bins = 100, alpha = 0.5, position = "dodge") +
+    labs(
+        title = "Distance to analog histogram",
+        x = "Distance to analog (km)",
+        y = "Relative Frequency",
+        fill = "Exclusion Radius"
+    ) +
+    scale_fill_brewer(palette = "Set1") +
+    theme_minimal()
+ggsave("figures/distance_histogram_validation.svg", histogram_distance, width = 10, height = 10)
+
+sigma <- map(clean_list, compute_accuracy_sigma_bps)
+accuracy_df <- build_accuracy_tables(sigma)
+rownames(accuracy_df) <- NULL
+accuracy_df$Method <- NULL
+accuracy_df$exclusion <- c("0 km", "0 km", "25 km", "25 km")
+saveRDS(accuracy_df, "data/validation/outputs/sigma_accuracy_validation.rds")
+
+##############
+# Washington tests for various methods
+###############
 cleaned_wa <- setup_veg_prediction_bps(washington, washington_border, template_r, BPS)
 # bitvectors
 actual_include <- !cleaned_wa$BPS_name_actual %in% c("Pacific riparian systems", "Interior riparian")
@@ -197,15 +250,27 @@ results_list <- list(
     washington_plurality = washington_plurality,
     washington_plurality_wsigma = washington_plurality_wsigma,
     washington_sigma = washington_sigma,
-    washington_distance = washington_distance,
-    washington_combined = washington_combined
+    washington_distance = washington_distance
+    # washington_combined = washington_combined
 )
 
 # now combine accuracy results into a single data frame
 accuracy_df <- build_accuracy_tables(results_list) %>%
     mutate(
         dataset = "validation",
-        state = "Washington"
+        state = "Washington",
+        Method = case_when(
+            str_detect(Method, "distance") ~ "Distance to closest \nwinning analog",
+            str_detect(Method, "plurality$") ~ "Agreement \n(counts)",
+            str_detect(Method, "plurality with sigma") ~ "Agreement \n(counts, climatic-\nagreement breaking ties)",
+            str_detect(Method, "^sigma$") ~ "Agreement \n(climatic-agreement)",
+            .default = as.character(Method)
+        ),
+        Method = str_to_sentence(Method),
+        Prediction = case_when(
+            str_detect(Prediction, "BPS") ~ "Intermediate vegetation types",
+            str_detect(Prediction, "Forest") ~ "Forest/Non-Forest"
+        )
     )
 
 ## plot the accuracy metrics
@@ -214,16 +279,26 @@ BPS_accuracy_plot <- accuracy_df %>%
     geom_bar(stat = "identity", position = "dodge") +
     facet_wrap(~Prediction) +
     labs(
-        title = "Accuracy of BPS predictions",
-        x = "Dataset",
-        y = "Accuracy",
+        title = "Percent correctly classified",
+        x = "",
+        y = "Accuracy (percent)",
         fill = "Method"
     ) +
     ylim(c(0, 1)) +
+    scale_y_continuous(labels = scales::percent) +
     scale_fill_brewer(palette = "Dark2") +
     theme_bw() +
-    theme(axis.text.x = element_text(angle = 45, hjust = 1))
-ggsave("figures/BPS_accuracy_plot.jpg", BPS_accuracy_plot, width = 10, height = 10)
+    theme(
+        axis.text = element_text(size = 12, color = "black"),
+        axis.text.x = element_text(angle = 45, hjust = 1),
+        title = element_text(size = 14),
+        legend.key.size = unit(1, "cm"),
+        legend.text = element_text(size = 12),
+        legend.title = element_text(size = 14),
+        strip.text = element_text(size = 14),
+        plot.title = element_text(size = 14)
+    )
+ggsave("figures/BPS_accuracy_plot.svg", BPS_accuracy_plot, width = 10, height = 10)
 
 # kappa
 BPS_kappa_plot <- accuracy_df %>%
@@ -231,19 +306,28 @@ BPS_kappa_plot <- accuracy_df %>%
     geom_bar(stat = "identity", position = "dodge") +
     facet_wrap(~Prediction) +
     labs(
-        title = "Kappa of BPS predictions",
-        x = "Dataset",
+        title = "Classification reliability (Cohen's Kappa)",
+        x = "",
         y = "Kappa",
         fill = "Method"
     ) +
     ylim(c(0, 1)) +
     scale_fill_brewer(palette = "Dark2") +
     theme_bw() +
-    theme(axis.text.x = element_text(angle = 45, hjust = 1))
-ggsave("figures/BPS_kappa_plot.jpg", BPS_kappa_plot, width = 10, height = 10)
+    theme(
+        axis.text = element_text(size = 12, color = "black"),
+        axis.text.x = element_text(angle = 45, hjust = 1),
+        title = element_text(size = 14),
+        legend.key.size = unit(1, "cm"),
+        legend.text = element_text(size = 12),
+        legend.title = element_text(size = 14),
+        strip.text = element_text(size = 14),
+        plot.title = element_text(size = 14)
+    )
+ggsave("figures/BPS_kappa_plot.svg", BPS_kappa_plot, width = 10, height = 10)
 
 # create rasters of predicted and observed vegetation using the sigma method
-template_r <- rast("data/climate/topoterra_hist_1961-1990.tif", 1) %>%
+template_r <- rast("data/climate/TopoTerra_1961-1990.tif", 1) %>%
     crop(washington_border)
 wa_df <- washington_sigma$simplified_dt %>%
     mutate(
@@ -323,7 +407,7 @@ sd_hist <- sigma_df %>%
     scale_x_continuous(trans = scales::log_trans(base = 10)) +
     theme_minimal()
 
-ggsave("figures/washington/sd_hist.jpg", sd_hist, width = 10, height = 10)
+ggsave("figures/washington/sd_hist.svg", sd_hist, width = 10, height = 10)
 
 min_hist <- sigma_df %>%
     ggplot(aes(x = min, fill = dataset)) +
@@ -338,7 +422,7 @@ min_hist <- sigma_df %>%
     scale_fill_brewer(palette = "Set1") +
     theme_minimal()
 
-ggsave("figures/washington/min_hist.jpg", min_hist, width = 10, height = 10)
+ggsave("figures/washington/min_hist.svg", min_hist, width = 10, height = 10)
 
 # scatter plots of the factorials
 # mean x sd
@@ -356,7 +440,7 @@ mean_x_sd <- sigma_df %>%
     guides(color = guide_legend(override.aes = list(alpha = 1))) +
     facet_wrap(~dataset)
 
-ggsave("figures/washington/mean_x_sd.jpg", mean_x_sd, width = 10, height = 10)
+ggsave("figures/washington/mean_x_sd.svg", mean_x_sd, width = 10, height = 10)
 # min x mean
 
 min_x_mean <- sigma_df %>%
@@ -373,7 +457,7 @@ min_x_mean <- sigma_df %>%
     guides(color = guide_legend(override.aes = list(alpha = 1))) +
     facet_wrap(~dataset)
 
-ggsave("figures/washington/min_x_mean.jpg", min_x_mean, width = 10, height = 10)
+ggsave("figures/washington/min_x_mean.svg", min_x_mean, width = 10, height = 10)
 
 # min x sd
 
@@ -391,7 +475,7 @@ min_x_sd <- sigma_df %>%
     guides(color = guide_legend(override.aes = list(alpha = 1))) +
     facet_wrap(~dataset)
 
-ggsave("figures/washington/min_x_sd.jpg", min_x_sd, width = 10, height = 10)
+ggsave("figures/washington/min_x_sd.svg", min_x_sd, width = 10, height = 10)
 
 
 # distance to best analog
@@ -414,7 +498,7 @@ best_analog_hist <- distance_2_best %>%
     scale_y_continuous(trans = scales::pseudo_log_trans(base = 10)) +
     theme_minimal()
 
-ggsave("figures/washington/best_analog_hist.jpg", best_analog_hist, width = 10, height = 10)
+ggsave("figures/washington/best_analog_hist.svg", best_analog_hist, width = 10, height = 10)
 
 # distance to closest analog
 
@@ -436,4 +520,4 @@ closest_analog_hist <- distance_2_closest %>%
     scale_fill_brewer(palette = "Set1") +
     theme_minimal()
 
-ggsave("figures/washington/closest_analog_hist.jpg", closest_analog_hist, width = 10, height = 10)
+ggsave("figures/washington/closest_analog_hist.svg", closest_analog_hist, width = 10, height = 10)

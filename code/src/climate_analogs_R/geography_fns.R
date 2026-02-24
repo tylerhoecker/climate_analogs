@@ -17,6 +17,7 @@ great_circle_distance <- function(lat1, lon1, lat2, lon2) {
     return(R * c)
 }
 
+# calculate the bounding box coordinates around a point given a max distance in km
 max_distance_coordinates <- function(lat, lon, max_dist) {
     # Earth's radius in meters
     R <- 6378.137

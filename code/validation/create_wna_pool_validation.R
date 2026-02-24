@@ -5,94 +5,112 @@ library(dplyr)
 library(purrr)
 source(file.path(getwd(), "code/src/climate_analogs_R/as.data.table.R"))
 
-#
+###### Create sample pixels and number them by tile for WNA validation ######
 
 
 climate_dir <- file.path(getwd(), "data/climate")
 # create template
-template <- rast(file.path(getwd(), "data/climate/topoterra_hist_1961-2022.tif"),
+template <- rast(file.path(getwd(), "data/climate/TopoTerra_1961-2022.tif"),
   lyrs = 1
 )
-lf_mask <- rast("data/lf_water_mask_4326.tiff") %>%
-  crop(., template) %>%
-  classify(matrix(c(-1111, NA), ncol = 2), others = 1)
 
-template <- template * lf_mask
+# sample test
 
+# sample pixels
+focal_mask <- rast("data/lf_mask_focal.tif")
+analog_mask <- rast("data/lf_mask_analog.tif")
+sample_pixels <- function(template, sample_size) {
+  validcells <- cells(template)
+  sample_indices <- sample(validcells, size = sample_size, replace = FALSE)
+  template[sample_indices] <- 1
+  template[-sample_indices] <- NA
+  return(template)
+}
 
+sample_size <- 100000
+template_sample <- sample_pixels(
+  template,
+  sample_size
+)
 
+template_focal <- template * focal_mask
+template_analog <- template * analog_mask
+# build extents
+col_cells <- ceiling(dim(template)[2] / 4)
+row_cells <- ceiling(dim(template)[1] / 5)
 
-states <- vect("data/western_states/western_states.shp")
-state_names <- states$NAME %>% str_to_lower()
-for (state in state_names) {
-  state_v <- subset(states, NAME == str_to_title(state), NSE = TRUE) %>%
-    project(crs(template))
-  classify_mat <- matrix(c(NA, NA), ncol = 2)
-  template_binary <- classify(template, classify_mat, others = 1) %>%
-    mask(state_v)
-  template_buffer <- classify(template, classify_mat, others = 1) %>%
-    mask(buffer(state_v, 500 * 1000))
-
-  total_cells <- global(template_binary, "sum", na.rm = T) |> as.integer()
-  sample_size <- round(0.10 * total_cells)
-
-
-  template_sample <- template_binary
-
-
-  # check that sum of template_sample = sample_size
-  global(template_sample, "sum", na.rm = TRUE) |> as.integer() == sample_size
-  years <- 1985:2015
-  ann_contemp <- paste0(climate_dir, "/topoterra_2C_", years, ".tif") |>
-    map(\(x) {
-      rast(x) * template_sample
-    })
-  annuals_contemporary <- vector("list", length(ann_contemp))
-  for (i in seq_along(ann_contemp)) {
-    annuals_contemporary[[i]] <- as.data.table(ann_contemp[[i]], xy = TRUE)
-    annuals_contemporary[[i]] <- na.omit(annuals_contemporary[[i]])
-    ann_contemp[[i]] <- T
-    gc()
-  }
-  # # # This is slow, save for convenience for now
+extents <- getTileExtents(template, c(row_cells, col_cells))
 
 
-  normal_contemporary <- list.files(
-    climate_dir, "topoterra_2C_1985-2015.tif",
-    full.names = TRUE
-  ) |>
-    rast() %>%
-    "*"(., template_sample) |>
+# number the sampled pixels by which tile they belong to
+numbered_template_sample <- template_sample %>%
+  classify(matrix(c(NA, NA), ncol = 2), others = 0)
+c <- 0
+for (i in seq_len(nrow(extents))) {
+  extentt <- extents[i, ] |> ext()
+  # Crop the template_sample to the current extent
+  cropped_sample <- crop(template_sample, extentt)
+  # Get the indices of non-NA cells in the cropped sample
+  valid_cells <- which(!is.na(values(cropped_sample)))
+  l <- length(valid_cells)
+  c <- c + l
+  print(paste0(
+    "Numbering tile ", i, " with ", l, " cells. ",
+    "Cumulative is ", c, " cells."
+  ))
+  # Map the valid cells back to the original template_sample
+  global_indices <- cellFromXY(template_sample, xyFromCell(cropped_sample, valid_cells))
+  # Only update cells that are currently NA
+  numbered_template_sample[global_indices] <- i
+}
+# now make it data table and save RDS
+numbered_template_sample_dt <- as.data.table(numbered_template_sample, xy = TRUE) |>
+  na.omit()
+saveRDS(numbered_template_sample_dt, file.path(getwd(), "data/validation/numbered_template_sample.Rds"))
+
+
+ann_contemp <- paste0(climate_dir, "/TopoTerra_", 1985:2015, ".tif") |>
+  map(\(x) {
+    rast(x) * template_sample
+  })
+annuals_contemporary <- vector("list", length(ann_contemp))
+for (i in seq_along(ann_contemp)) {
+  annuals_contemporary[[i]] <- as.data.table(ann_contemp[[i]], xy = TRUE)
+  annuals_contemporary[[i]] <- na.omit(annuals_contemporary[[i]])
+  ann_contemp[[i]] <- TRUE
+  gc()
+}
+saveRDS(annuals_contemporary, file.path(getwd(), "data/validation/annuals_contemporary_sample.Rds"))
+
+
+normal_contemporary <- list.files(
+  climate_dir, "TopoTerra_1985-2015.tif",
+  full.names = TRUE
+) |>
+  rast() %>%
+  "*"(., template_sample) |>
+  as.data.table(xy = TRUE) |>
+  na.omit()
+saveRDS(
+  normal_contemporary,
+  file.path(getwd(), "data/validation/normal_contemporary_sample.Rds")
+)
+
+
+# build 20 analog pools so they can be loaded as needed
+analog_pool <- list.files(
+  climate_dir, "TopoTerra_1985-2015.tif",
+  full.names = TRUE
+) |>
+  rast()
+for (i in 1:20) {
+  extentt <- extents[i, ] |>
+    ext() |>
+    vect(crs = crs("EPSG:4326")) |>
+    buffer(500 * 1000)
+  analog_pool_t <- analog_pool %>%
+    crop(., extentt) %>%
     as.data.table(xy = TRUE) |>
     na.omit()
-
-  analog_pool <- list.files(
-    climate_dir, "topoterra_hist_1985-2015.tif",
-    full.names = TRUE
-  ) |>
-    rast() %>%
-    "*"(., template_buffer) %>%
-    as.data.table(xy = TRUE) |>
-    na.omit()
-  saveRDS(analog_pool, file.path(getwd(), paste0("data/validation/analog_pool_", state, ".Rds")))
-  # verify that x and y coordinates of normal_contemporary and annuals_contemporary are the same
-  # map it to all annual contemporary
-  match_check <- map_lgl(annuals_contemporary, \(x) {
-    future_i <- x[, c("x", "y")]
-    normal_contemporary_i <- normal_contemporary[, c("x", "y")]
-    all.equal(future_i, normal_contemporary_i)
-  }) |> sum() / length(annuals_contemporary)
-  if (match_check == 1) {
-    print("All x and y coordinates match")
-    saveRDS(
-      normal_contemporary,
-      file.path(getwd(), paste0("data/validation/normal_contemporary_", state, ".Rds"))
-    )
-    saveRDS(
-      annuals_contemporary,
-      file.path(getwd(), paste0("data/validation/annuals_contemporary_", state, ".Rds"))
-    )
-  } else {
-    print("Some x and y coordinates do not match")
-  }
+  saveRDS(analog_pool_t, file.path(getwd(), paste0("data/validation/analog_pool_sample_", i, ".Rds")))
 }

@@ -15,6 +15,7 @@ check_memory <- function(focal_data_cov, focal_data_mean, analog_pool, n_analog_
         total_memory <- as.numeric(system("awk '/MemTotal/ {print $2}' /proc/meminfo", intern = TRUE)) * 1e-6
     }
 
+    # calculate memory needed for analysis
     used_memory <- object.size(focal_data_cov) + object.size(focal_data_mean) + object.size(analog_pool)
     sampling_memory <- 4 * 7 * nrow(focal_data_mean)
     nprocesses <- parallel::detectCores() * 2
@@ -29,6 +30,7 @@ check_memory <- function(focal_data_cov, focal_data_mean, analog_pool, n_analog_
     return(list(necessary_memory = necessary_memory, total_memory = total_memory))
 }
 
+# get extents of tiles given n tiles
 create_outer_extents <- function(focal_data_coords, min_n_tiles) {
     min_x <- min(focal_data_coords$x)
     max_x <- max(focal_data_coords$x)
@@ -66,6 +68,7 @@ create_outer_extents <- function(focal_data_coords, min_n_tiles) {
     return(tile_extents)
 }
 
+# assign a tile id to each point in the focal dataset based on the tile extents
 find_tile_id <- function(x, y, tile_extents) {
     for (i in 1:nrow(tile_extents)) {
         if (x >= tile_extents[i, "min_x"] && x <= tile_extents[i, "max_x"] &&
@@ -75,6 +78,7 @@ find_tile_id <- function(x, y, tile_extents) {
     }
 }
 
+# split data into tiles
 spatial_partition <- function(focal_data_cov, focal_data_mean, analog_pool, n_analog_use) {
     memory_info <- check_memory(focal_data_cov, focal_data_mean, analog_pool, n_analog_use)
     necessary_memory <- memory_info$necessary_memory

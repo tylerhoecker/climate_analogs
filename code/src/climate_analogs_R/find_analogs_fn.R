@@ -1,7 +1,7 @@
 #' @description Wrapper function for a given dataframe of focal locations and climate data
 #' @param focal_data_cov Repeated observations from focal locations (ie, annualized futures) to calculate covariance matrix
 #' @param focal_data_mean Mean of repeated observations from focal locations (not required, usually calculated from focal_data_cov)
-#' @param analog_data Mean observations from potential analogs (ie historical means from across West)
+#' @param analog_data Mean observations from potential analogs (ie contemporary means from across West)
 #' @param var_names Climate variable names; expected to be names for columns in data.tables
 #' @param n_analog_pool Size of global analog pool, sampled randomly from extent of analog_data
 #' @param n_analog_use Number of good analogs to keep
@@ -30,7 +30,7 @@ sample_analogs <- function(filtered_analog_data, n_analog_pool) {
     return(filtered_analog_data[indices, ])
 }
 
-# Function to create a bit vector
+# Function to create a bit vector of points within the max distance of the focal point
 create_bitVector <- function(analog_data, coords) {
     # Extract coordinates from the data frame
     dfx <- analog_data$x
@@ -48,6 +48,7 @@ create_bitVector <- function(analog_data, coords) {
     return(bit_vector)
 }
 
+# Function to calculate analogs for a single point
 calculate_analogs <- function(
     focal_data_cov,
     focal_data_mean,
@@ -59,24 +60,20 @@ calculate_analogs <- function(
     max_dist,
     x) {
     if (max_dist != Inf) {
+        # Get the coordinates of the bounding box around the focal point with a radius of max_dist
         coords <- max_distance_coordinates(focal_data_cov[[1]][x, "y"], focal_data_cov[[1]][x, "x"], max_dist)
-        # 1.4 ms
         # Use the coordinates to filter the analog data
         bit_vector <- create_bitVector(analog_data, coords)
-        # 236 ms
-        # alternative to create_bitVector
-
-
         indices <- which(bit_vector)
-        # 15 ms
-        filtered_analog_data <- analog_data[indices, ] # 17 ms
+        filtered_analog_data <- analog_data[indices, ]
     } else {
         filtered_analog_data <- analog_data
     }
 
     analog_data <- NULL
 
-    sampled_analog_data <- sample_analogs(filtered_analog_data, n_analog_pool) # 50 ms
+    # Sample the analog pool to n_analog_pool
+    sampled_analog_data <- sample_analogs(filtered_analog_data, n_analog_pool)
 
     # Preallocate
     insert_df <- data.table(
@@ -86,6 +83,7 @@ calculate_analogs <- function(
         dist_km = rep(0, n_analog_pool)
     )
 
+    # Calculate the Mahalanobis distance and sigma dissimilarity for the point to the analog pool, and filter to the n_analog_use best analogs within the max distance
     result_i <- suppressWarnings(calc_mahalanobis(
         x,
         focal_data_cov,
@@ -101,11 +99,9 @@ calculate_analogs <- function(
     # Remove filtered_analog_data from memory
     filtered_analog_data <- NULL
 
-    # Save the result
-    # ...
     return(result_i)
 }
-# Function to calculate analogs distributed
+# Function to calculate analogs over a dataset, distributed over cores
 calculate_analogs_distributed <- function(
     focal_data_cov,
     focal_data_mean,
@@ -132,6 +128,7 @@ calculate_analogs_distributed <- function(
     with_progress({
         p <- progressor(along = 1:nrow(focal_data_cov[[1]]))
 
+        # Run the calculate_analogs function for each point in the focal dataset in parallel, and combine results into a single data.table. If an error occurs for a point, log the index to the error file and continue processing.
         results <- future_map_dfr(1:nrow(focal_data_cov[[1]]), function(x) {
             p()
             tryCatch(
@@ -164,6 +161,8 @@ calculate_analogs_distributed <- function(
     plan(sequential) # Reset to sequential processing
     return(results)
 }
+
+# primary function to find analogs for a given, and create csv.gz's  of the results
 find_analogs <- function(
     focal_data_cov,
     focal_data_mean,
