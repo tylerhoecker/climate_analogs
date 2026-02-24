@@ -149,6 +149,23 @@ function calculate_analogs_distributed(
   return result
 end
 
+"""
+  `find_analogs` is the main function that takes in focal data,
+    analog data, and parameters for the analog search
+    , and returns a dataframe of the best analogs for each focal point.
+
+  # Arguments
+  - `focal_data_cov::Union{Vector{Any},Vector{DataFrame}}`: A vector of DataFrames containing the repeated observations from focal locations (ie, annualized futures) to calculate covariance matrix
+  - `focal_data_mean::DataFrame`: A DataFrame containing the mean of repeated observations from focal locations
+  - `analog_data::DataFrame`: A DataFrame containing the mean observations from potential analog pixels
+  - `var_names::Vector{String}`: A vector of strings containing the names of the climate variables to use in the analog search; expected to be names for columns in data.tables
+  - `n_analog_pool::Integer`: The size of the sampled global analog pool
+  - `n_analog_use::Integer`: The number of best analogs to keep for each focal point
+  - `min_dist::Union{AbstractFloat,Integer}`: The minimum distance (in km) that an analog must be from the focal point
+  - `max_dist::Union{AbstractFloat,Integer}`: The maximum distance (in km) that an analog can be from the focal point
+  - `output_dir::String`: Directory where the output CSV files will be saved
+  - `output_file::String`: The base name for the output CSV file
+"""
 function find_analogs(
   focal_data_cov::Union{Vector{Any},Vector{DataFrame}},
   focal_data_mean::DataFrame,

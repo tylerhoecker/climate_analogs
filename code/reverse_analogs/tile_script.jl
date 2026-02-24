@@ -2,8 +2,9 @@ using ProgressMeter
 using RCall
 using Distributed
 using CodecZlib
-cpus_per_task = parse(Int, ENV["SLURM_CPUS_PER_TASK"])
-addprocs(cpus_per_task)
+# uncomment if running on slurm and set cpus per task in the sbatch script
+# cpus_per_task = parse(Int, ENV["SLURM_CPUS_PER_TASK"])
+# addprocs(cpus_per_task)
 
 #####################
 # PRIMARY SCRIPT FOR CONTEMPORARY AND FUTURE REVERSE ANALOGS. PATHS AND INPUTS CHANGED AS NEEDED
@@ -121,6 +122,7 @@ analog_pool[!, Not(:x, :y)] = Int16.(round.(analog_pool[!, Not(:x, :y)], digits=
 # This takes 4.5 hours to ~1.4m analogs across reverse_analogs points on 25 cores
 # calculate n_analog_use which is the sample size to draw from the analog pool for each focal cell.
 proportion_landscape = 0.05
+# 0.270 is the approximate km per pixel
 n_analog_pool::Int32 = round(((2 * max_dist) / 0.270)^2 * proportion_landscape, digits=0) |> Integer
 
 try

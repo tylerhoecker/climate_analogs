@@ -70,29 +70,35 @@ This repository contains dual implementations (R and Julia) for identifying clim
 
 ---
 
-## Core Functions
+## Source Code
 
 ### Main Workflow
+- **`climate_analogs.R` OR `climate_analogs.jl`** - These must be run with `source()` or `include()` (respectively) to load all the functions necessary for calculating climate analogs
+- **`find_analogs()`** - Function for computing climate analogs. *This should be the only function you need to run to calculate climate analogs*
 
-- **`find_analogs()`** - Primary entry point for computing climate analogs.
+### Internal Functions
+
+#### Primary functions 
 - **`calculate_analogs()`** - Takes an input pixel and computes it’s climate analogs
 - **`calculate_analogs_distributed()`** - Runs calculate_analogs() distributed over multiple cores
 
-### Distance Calculations
+#### Distance Calculations
 - **`calc_mahalanobis()`** - Computes Mahalanobis distance from focal to analog pool
 - **`calc_sigma()`** - Converts Mahalanobis distance to sigma (chi-squared transform)
 - **`great_circle_distance()`** - Calculates geographic distance using Haversine formula
 
-### Geographic Utilities
+#### Geographic Utilities
 - **`max_distance_coordinates()`** - Creates bounding box at max_dist radius from focal point
 - **`create_bitVector()`** - Fast spatial filter to subset analog pool within bounding box
 
-### Sampling & Filtering
+#### Sampling & Filtering
 - **`sample_analogs()`** - Random sample of n_analog_pool from filtered data
 - **`spatial_partition()`** - Tiles study area for memory-efficient processing
 - **`check_memory()`** - Validates available memory vs. required memory
 
-### Vegetation Analysis (R only)
+### Post Processing Functions 
+
+#### Vegetation Analysis (R only)
 
 - **`setup_veg_prediction_bps()`** - Takes outputs of the primary analysis, a study area border, a template raster, and the BPS raster to create a clean dataset of every focal pixel, each analog for each focal pixel, and the vegetation group at that pixel.
 - **`calculate_top_sigma()`** - Tallies sigma weighted votes and chooses the vegetation group with the most votes.
@@ -160,10 +166,11 @@ contemporary analog predictions. This is a script (ie you need to run `julia til
  that takes a tile_id as input. 
  Please refer to the [Julia CLI manual](https://docs.julialang.org/en/v1/manual/command-line-interface/#cli) 
  or the [RScript manual](https://linux.die.net/man/1/rscript) for other flags, such as setting the 
- number of cores and threads for analysis. Within the tile script, uses that tile ID and hard coded paths 
- to obtain rds files created by `code/reverse_analogs/create_wna_pool_reverse_tiles.R` .
+ number of cores and threads for analysis. It is easy to edit these scripts to run interactively, simply replace any call
+ of `ARGS` or `commandArgs()` with the tile number. Within the tile script, it uses that tile ID and hard coded paths 
+ to obtain rds files created by `code/reverse_analogs/create_wna_pool_reverse_tiles.R`.
  Those rds files are then slightly prepped, and other variables such as the proportion of the landscape to sample, 
- the maximum distance to obtain analogs, among others, can be set. 
+ the maximum distance to sample analogs, among others, can be set. 
  The `find_analogs()` function then computes the climate analogs and writes the outputs to your `output_dir`
  named `output_file` as a gzipped CSV (file extension is handled for you).
 

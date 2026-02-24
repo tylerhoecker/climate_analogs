@@ -20,7 +20,7 @@ source(file.path(project_dir, "code", "src", "climate_analogs_R", "climate_analo
 
 
 
-max_dist <- 500
+max_dist <- 500 # KM
 if (length(commandArgs(trailingOnly = TRUE)) == 0) {
     stop("Stopping: Args must be supplied")
 } else if (length(commandArgs(trailingOnly = TRUE)) > 1) {
@@ -53,6 +53,7 @@ message("loaded data")
 
 # Calculate n_analog_use which is the sample size to draw from the analog pool for each focal cell.
 proportion_landscape <- 0.05
+# 0.270 is the approximate km per pixel
 n_analog_pool <- round(((2 * max_dist) / 0.270)^2 * proportion_landscape, digits = 0) |> as.numeric()
 
 tryCatch(
