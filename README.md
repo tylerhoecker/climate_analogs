@@ -1,3 +1,4 @@
+<<<<<<< HEAD
 # Climate Analogs
 
 **Analyses to identify climate analogs and implement climate-analog impact models**
@@ -178,3 +179,7 @@ contemporary analog predictions). This is currently a script that takes a tile_i
 ## Reference
 
 **Key Algorithm:** Adapted from Mahony et al. 2017, *Global Change Biology*: https://doi.org/10.1111/gcb.13645
+=======
+# climate_analogs
+Analyses to identify climate analogs and implement climate-analog impact models
+>>>>>>> main

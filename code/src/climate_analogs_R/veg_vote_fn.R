@@ -152,7 +152,6 @@ forest_nonforest <- function(group_veg) {
     TRUE ~ "Non-Forest"
   )
 }
-
 join_fn_BPS <- function(input_dt, input_csv) {
   # Perform the join using the provided by_statement
   # result <- input_dt %>%
