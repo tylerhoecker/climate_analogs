@@ -69,6 +69,7 @@ analog_impact_fn <- function(
     # Select top n projections
     slice_head(n = n_projections) |>
     mutate(rank = row_number()) |>
+    ungroup() |>
     pivot_wider(
       id_cols = c(focal_id, x, y, observed),
       names_from = rank,
